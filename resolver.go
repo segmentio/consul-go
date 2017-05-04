@@ -8,6 +8,9 @@ import (
 
 // A Resolver is a high-level abstraction on top of the Consul service discovery
 // API.
+//
+// The zero-value is a valid Resolver that uses DefaultClient to query the
+// consul agent.
 type Resolver struct {
 	// The client used by the resolver, which may be nil to indicate that a
 	// default client should be used.
@@ -76,7 +79,7 @@ func (rslv *Resolver) client() *Client {
 	if client := rslv.Client; client != nil {
 		return client
 	}
-	return &Client{}
+	return DefaultClient
 }
 
 func queryAppendTags(query Query, tags ...string) Query {

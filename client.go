@@ -45,6 +45,9 @@ var (
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// DefaultClient is the default client used when none is specified.
+	DefaultClient = &Client{}
+
 	// DefaultUserAgent is the default user agent used by consul clients when
 	// none has been set.
 	DefaultUserAgent string
