@@ -1,5 +1,4 @@
 # consul-go [![CircleCI](https://circleci.com/gh/segmentio/consul-go.svg?style=shield)](https://circleci.com/gh/segmentio/consul-go) [![Go Report Card](https://goreportcard.com/badge/github.com/segmentio/consul-go)](https://goreportcard.com/report/github.com/segmentio/consul-go) [![GoDoc](https://godoc.org/github.com/segmentio/consul-go?status.svg)](https://godoc.org/github.com/segmentio/consul-go)
-========
 
 ## Motivations
 
