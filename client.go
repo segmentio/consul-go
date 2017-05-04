@@ -54,9 +54,6 @@ func init() {
 	DefaultUserAgent = fmt.Sprintf("%s (github.com/segmentio/consul-go)", filepath.Base(os.Args[0]))
 }
 
-// An ID is a general purpose unique identifier.
-type ID string
-
 // A Client exposes an API for communicating with a consul agent.
 //
 // The properties of a client are only read by its method, it is therefore safe
