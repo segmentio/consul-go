@@ -22,19 +22,19 @@ type Resolver struct {
 	Near string
 
 	// A list of service tags used to filter the result set. Only addresses of
-	// services that match those tags will be returned by LookupServices.
+	// services that match those tags will be returned by LookupService.
 	ServiceTags []string
 
 	// A set of key/value pairs used to filter the result set. Only addresses of
-	// nodes that have matching metadata will be returned by LookupServices.
+	// nodes that have matching metadata will be returned by LookupService.
 	NodeMeta map[string]string
 }
 
-// LookupServices resolves a service name to a list of addresses using the
+// LookupService resolves a service name to a list of addresses using the
 // resolver's configuration and the given list of extra service tags to narrow
 // the result set. Only addresses of healthy services are returned by the lookup
 // operation.
-func (rslv *Resolver) LookupServices(ctx context.Context, name string, tags ...string) (addrs []string, err error) {
+func (rslv *Resolver) LookupService(ctx context.Context, name string, tags ...string) (addrs []string, err error) {
 	var results []struct {
 		// There are other fields in the response which have been omitted to
 		// avoiding parsing a bunch of throw-away values. Refer to the consul

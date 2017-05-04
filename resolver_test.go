@@ -10,10 +10,10 @@ import (
 )
 
 func TestResolver(t *testing.T) {
-	t.Run("LookupServices", testLookupServices)
+	t.Run("LookupService", testLookupService)
 }
 
-func testLookupServices(t *testing.T) {
+func testLookupService(t *testing.T) {
 	server, client := newServerClient(func(res http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			t.Error("bad method:", req.Method)
@@ -59,7 +59,7 @@ func testLookupServices(t *testing.T) {
 		NodeMeta:    map[string]string{"answer": "42"},
 	}
 
-	addrs, err := rslv.LookupServices(context.Background(), "1234", "a", "b", "c")
+	addrs, err := rslv.LookupService(context.Background(), "1234", "a", "b", "c")
 
 	if err != nil {
 		t.Error(err)
