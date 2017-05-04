@@ -34,8 +34,7 @@ var (
 	// the loopback interface.
 	DefaultTransport http.RoundTripper = &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout:   5 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout: 5 * time.Second,
 		}).DialContext,
 		DisableCompression:    true,
 		MaxIdleConns:          5,
@@ -54,6 +53,9 @@ var (
 func init() {
 	DefaultUserAgent = fmt.Sprintf("%s (github.com/segmentio/consul-go)", filepath.Base(os.Args[0]))
 }
+
+// An ID is a general purpose unique identifier.
+type ID string
 
 // A Client exposes an API for communicating with a consul agent.
 //
