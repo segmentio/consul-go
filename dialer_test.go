@@ -40,7 +40,7 @@ func TestDialer(t *testing.T) {
 		},
 	}
 
-	res, err := httpClient.Get("http://whatever:0/")
+	res, err := httpClient.Get("http://whatever/")
 	if err != nil {
 		t.Error(err)
 	}
