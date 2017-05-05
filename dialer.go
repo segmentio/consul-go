@@ -82,10 +82,6 @@ func DialContext(ctx context.Context, network string, address string) (net.Conn,
 	return (&Dialer{}).DialContext(ctx, network, address)
 }
 
-func joinHostPort(host string, port string) string {
-	return net.JoinHostPort(host, port)
-}
-
 func splitHostPort(s string) (string, string) {
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
