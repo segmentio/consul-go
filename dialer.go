@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// The Dialer type mirrors the net.Dialer API but uses Consul to resolve service
+// The Dialer type mirrors the net.Dialer API but uses consul to resolve service
 // names to network addresses instead of DNS.
 //
 // The Dialer always ignores ports specified in the addreses that it's trying to
-// connect to and uses the ports looked up from Consul instead, unless it was
+// connect to and uses the ports looked up from consul instead, unless it was
 // given and address which is a valid IP representation in which case it does
 // not resolve the service name and directly establish the connection.
 //
@@ -80,10 +80,6 @@ func Dial(network string, address string) (net.Conn, error) {
 // dialer.
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
 	return (&Dialer{}).DialContext(ctx, network, address)
-}
-
-func joinHostPort(host string, port string) string {
-	return net.JoinHostPort(host, port)
 }
 
 func splitHostPort(s string) (string, string) {

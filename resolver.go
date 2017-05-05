@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// A Resolver is a high-level abstraction on top of the Consul service discovery
+// A Resolver is a high-level abstraction on top of the consul service discovery
 // API.
 //
 // The zero-value is a valid Resolver that uses DefaultClient to query the

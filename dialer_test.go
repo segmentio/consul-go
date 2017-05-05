@@ -43,8 +43,9 @@ func TestDialer(t *testing.T) {
 	res, err := httpClient.Get("http://whatever/")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	b, err := ioutil.ReadAll(res.Body)
+	b, _ := ioutil.ReadAll(res.Body)
 	res.Body.Close()
 
 	if s := string(b); s != "Hello World!" {
