@@ -34,8 +34,7 @@ var (
 	// the loopback interface.
 	DefaultTransport http.RoundTripper = &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout:   5 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout: 5 * time.Second,
 		}).DialContext,
 		DisableCompression:    true,
 		MaxIdleConns:          5,
@@ -45,6 +44,9 @@ var (
 		ResponseHeaderTimeout: 1 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+
+	// DefaultClient is the default client used when none is specified.
+	DefaultClient = &Client{}
 
 	// DefaultUserAgent is the default user agent used by consul clients when
 	// none has been set.
