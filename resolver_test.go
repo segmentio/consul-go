@@ -2,11 +2,12 @@ package consul
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"reflect"
 	"testing"
+
+	"github.com/segmentio/objconv/json"
 )
 
 func TestResolver(t *testing.T) {
