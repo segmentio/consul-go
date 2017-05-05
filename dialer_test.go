@@ -1,12 +1,13 @@
 package consul
 
 import (
-	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/segmentio/objconv/json"
 )
 
 func TestDialer(t *testing.T) {
