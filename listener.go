@@ -2,187 +2,187 @@ package consul
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
-	"strings"
+	"sync"
+	"time"
 )
 
-// Listen creates a listener that accept connections on the given network and
-// address, and registers to consul using the default client.
-//
-// The address may be in a URL format like "host:port/name/id?advertize=address"
-// to configure how the listener registers to consul.
-// The host, name, id, and advertized address parts are optional.
-//
-func Listen(network string, address string) (net.Listener, error) {
-	return ListenWithClient(network, address, nil)
+// The Listener type contains options to create listeners that automatically
+// register to consul.
+type Listener struct {
+	// The Client used to register the listener to a consul agent. If nil, the
+	// default client is used instead.
+	Client *Client
+
+	// A unique identifier for the service registered to consul. This only needs
+	// to be unique within the agent that the service registers to, and may be
+	// omitted. In that case, ServiceName is used instead.
+	ServiceID ServiceID
+
+	// The logical name of the service registered to consul. If none is set, the
+	// program name is used instead.
+	ServiceName string
+
+	// A list of tags to set on the service registered to consul.
+	ServiceTags []string
+
+	// If non-nil, specifies the address under which the service will be
+	// registered to consul. This is useful when running within a container for
+	// example, where the program may not have access to the external address to
+	// which clients should connect to in order to reach the service.
+	// By default, the address that new listeners accept connections on is used.
+	ServiceAddress net.IP
+
+	// If ServiceAddress is set, ServicePort should also be set to a non-zero
+	// value.
+	ServicePort int
+
+	// Configures whether registering the service with specific tags should
+	// overwrite existing values.
+	ServiceEnableTagOverride bool
+
+	// If the listener is intended to be used to serve HTTP connection this
+	// field may be set to the path that consul should query to health check
+	// the service.
+	CheckHTTP string
+
+	// CheckInterval is the time interval set on the TCP check that is
+	// registered to consul along with the service. Defaults to 10 seconds.
+	CheckInterval time.Duration
+
+	// Amount of time after which a service that is reported critical should be
+	// automatically deregistered. Defaults to never.
+	CheckDeregisterCriticalServiceAfter time.Duration
 }
 
-// ListenWithClient creates a listener that accept connections on the given
-// network and address, and registers to consul with client.
+// Listen creates a new listener that accepts network connections on the given
+// address, and automatically registers to consul.
+func (l *Listener) Listen(network string, address string) (net.Listener, error) {
+	return l.ListenContext(context.Background(), network, address)
+}
+
+// ListenContext creates a new listener that accepts network connections on the
+// given address, and automatically registers to consul.
 //
-// If client is nil, the default client is used instead.
-func ListenWithClient(network string, address string, client *Client) (net.Listener, error) {
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-	default:
-		return nil, fmt.Errorf("unsupported network: %s", network)
-	}
-
-	config, err := parseAddress(address)
+// The context may be used to asynchronously cancel the consul registration.
+func (l *Listener) ListenContext(ctx context.Context, network string, address string) (net.Listener, error) {
+	lstn, err := net.Listen(network, address)
 	if err != nil {
 		return nil, err
 	}
 
-	lstn, err := net.Listen(network, config.address)
-	if err != nil {
+	service := ServiceConfig{
+		ID:                l.ServiceID,
+		Name:              l.ServiceName,
+		Tags:              l.ServiceTags,
+		Address:           l.ServiceAddress.String(),
+		Port:              l.ServicePort,
+		EnableTagOverride: l.ServiceEnableTagOverride,
+	}
+
+	if service.Name == "" {
+		service.Name = filepath.Base(os.Args[0])
+	}
+
+	if service.ID == "" {
+		service.ID = ServiceID(service.Name)
+	}
+
+	if service.Address == "<nil>" {
+		addr, port, _ := net.SplitHostPort(lstn.Addr().String())
+		service.Address = addr
+		service.Port, _ = strconv.Atoi(port)
+	}
+
+	service.Checks = []CheckConfig{{
+		Notes:    "Ensure consul can establish TCP connections to the service",
+		Interval: "10s",
+		Status:   "passing",
+		TCP:      net.JoinHostPort(service.Address, strconv.Itoa(service.Port)),
+	}}
+
+	if l.CheckHTTP != "" {
+		service.Checks = append(service.Checks, CheckConfig{
+			Notes:    "Ensure consul can submit HTTP requests to the service",
+			Interval: "10s",
+			Status:   "passing",
+			HTTP: (&url.URL{
+				Scheme: "http",
+				Host:   service.Checks[0].TCP,
+				Path:   l.CheckHTTP,
+			}).String(),
+		})
+	}
+
+	if l.CheckInterval != 0 {
+		for i := range service.Checks {
+			service.Checks[i].Interval = S(l.CheckInterval)
+		}
+	}
+
+	if l.CheckDeregisterCriticalServiceAfter != 0 {
+		for i := range service.Checks {
+			service.Checks[i].DeregisterCriticalServiceAfter = S(l.CheckDeregisterCriticalServiceAfter)
+		}
+	}
+
+	client := l.client()
+
+	if err := client.RegisterService(ctx, service); err != nil {
+		lstn.Close()
 		return nil, err
 	}
 
-	if len(config.advertize) == 0 {
-		config.advertize = lstn.Addr().String()
-	}
-
-	if client == nil {
-		client = DefaultClient
-	}
-
-	l := &listener{
-		lstn:      lstn,
+	wrap := &listener{
+		Listener:  lstn,
 		client:    client,
-		serviceID: ServiceID(config.id),
+		serviceID: service.ID,
 	}
 
-	if err := l.register(config); err != nil {
-		return nil, err
-	}
+	runtime.SetFinalizer(wrap, (*listener).finalize)
+	return wrap, nil
+}
 
-	return l, nil
+func (l *Listener) client() *Client {
+	if client := l.Client; client != nil {
+		return client
+	}
+	return DefaultClient
 }
 
 type listener struct {
-	lstn      net.Listener
+	net.Listener
 	client    *Client
 	serviceID ServiceID
-}
-
-func (l *listener) Accept() (net.Conn, error) {
-	return l.lstn.Accept()
-}
-
-func (l *listener) Addr() net.Addr {
-	return l.lstn.Addr()
+	once      sync.Once
 }
 
 func (l *listener) Close() error {
-	l.deregister()
-	return l.lstn.Close()
-}
-
-func (l *listener) register(config listenConfig) error {
-	address, stringPort, err := net.SplitHostPort(config.advertize)
-	if err != nil {
-		return err
-	}
-
-	port, err := strconv.Atoi(stringPort)
-	if err != nil {
-		return err
-	}
-
-	if len(config.id) == 0 {
-		config.id = config.name
-	}
-
-	if len(config.timeout) == 0 {
-		config.timeout = "60m"
-	}
-
-	if len(config.notes) == 0 {
-		config.notes = "Ensure that consul can establish a TCP connection to the service"
-	}
-
-	if len(config.interval) == 0 {
-		config.interval = "10s"
-	}
-
-	return l.client.RegisterService(context.TODO(), ServiceConfig{
-		ID:                ServiceID(config.id),
-		Name:              config.name,
-		Address:           address,
-		Port:              port,
-		EnableTagOverride: true,
-		Checks: []CheckConfig{{
-			DeregisterCriticalServiceAfter: config.timeout,
-			TCP:      config.advertize,
-			Notes:    config.notes,
-			Interval: config.interval,
-		}},
+	l.once.Do(func() {
+		l.client.DeregisterService(context.TODO(), l.serviceID)
 	})
+	return l.Listener.Close()
 }
 
-func (l *listener) deregister() error {
-	return l.client.DeregisterService(context.TODO(), l.serviceID)
+func (l *listener) finalize() {
+	l.Close()
 }
 
-type listenConfig struct {
-	address   string
-	name      string
-	id        string
-	advertize string
-	timeout   string
-	notes     string
-	interval  string
+// Listen creates a listener that accept connections on the given network and
+// address, and registers to consul using the default client.
+func Listen(network string, address string) (net.Listener, error) {
+	return (&Listener{}).Listen(network, address)
 }
 
-func parseAddress(s string) (config listenConfig, err error) {
-	var u *url.URL
-
-	if u, err = url.Parse(s); err != nil {
-		return
-	}
-
-	switch path := strings.Split(u.Path, "/"); len(path) {
-	case 0:
-	case 1:
-		config.name = path[0]
-	case 2:
-		config.name, config.id = path[0], path[1]
-	default:
-		err = fmt.Errorf("bad listener address: too many path elements: %s", s)
-		return
-	}
-
-	q := u.Query()
-
-	if config.advertize = q.Get("advertize"); len(config.advertize) != 0 {
-		var host string
-		var port string
-		var v int
-
-		if host, port, err = net.SplitHostPort(config.advertize); err != nil {
-			err = fmt.Errorf("bad listener address: invalid advertized address: %s", err)
-			return
-		}
-
-		if net.ParseIP(host) == nil {
-			err = fmt.Errorf("bad listener address: the advertized address must be a valid IP: %s", s)
-			return
-		}
-
-		if v, err = strconv.Atoi(port); err != nil {
-			err = fmt.Errorf("bad listener address: non-numeric port in advertized address: %s", err)
-			return
-		} else if v < 0 {
-			err = fmt.Errorf("bad listener address: negative port number in advertized address: %s", s)
-			return
-		}
-	}
-
-	config.timeout = q.Get("deregister_critical_service_after")
-	config.notes = q.Get("notes")
-	config.interval = q.Get("interval")
-	return
+// ListenContext creates a listener that accept connections on the given network
+// and address, and registers to consul use the default client.
+//
+// The context may be used to asynchronously cancel the consul registration.
+func ListenContext(ctx context.Context, network string, address string) (net.Listener, error) {
+	return (&Listener{}).ListenContext(ctx, network, address)
 }

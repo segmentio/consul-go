@@ -40,14 +40,14 @@ type CheckConfig struct {
 	ID                             CheckID     `json:",omitempty"`
 	Name                           string      `json:",omitempty"`
 	Notes                          string      `json:",omitempty"`
-	DeregisterCriticalServiceAfter string      `json:",omitempty"`
+	DeregisterCriticalServiceAfter Seconds     `json:",omitempty"`
 	Script                         string      `json:",omitempty"`
 	DockerContainerID              string      `json:",omitempty"`
 	Shell                          string      `json:",omitempty"`
 	HTTP                           string      `json:",omitempty"`
 	TCP                            string      `json:",omitempty"`
-	Interval                       string      `json:",omitempty"`
-	TTL                            string      `json:",omitempty"`
+	Interval                       Seconds     `json:",omitempty"`
+	TTL                            Seconds     `json:",omitempty"`
 	Status                         CheckStatus `json:",omitempty"`
 	ServiceID                      ServiceID   `json:",omitempty"`
 	TLSSkipVerify                  bool        `json:",omitempty"`
