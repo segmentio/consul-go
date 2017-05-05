@@ -3,7 +3,6 @@ package consul
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -61,6 +60,9 @@ func init() {
 //
 // The properties of a client are only read by its method, it is therefore safe
 // to use a client concurrently from multiple goroutines.
+//
+// Clients are safe to used concurrently from multiple goroutines after they
+// were first constructed.
 type Client struct {
 	// Addr of the consul agent this client sends requests to.
 	// If Address is an empty string then DefaultAddress is used instead.
@@ -73,9 +75,6 @@ type Client struct {
 	// sends requests for.
 	// If Datacenter is an empty string the agent's default is used.
 	Datacenter string
-
-	// Session is the ID of a session used by the client to acquire locks.
-	Session SessionID
 
 	// Transport is the HTTP transport used by the client to send requests to
 	// its agent.
@@ -179,13 +178,6 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 		err = fmt.Errorf("%s %s: %s", method, url, res.Status)
 	} else if recv != nil {
 		err = json.NewDecoder(res.Body).Decode(recv)
-	}
-	return
-}
-
-func (c *Client) checkSession(op string) (err error) {
-	if len(c.Session) == 0 {
-		err = errors.New(op + " requires a consul session but the client has none")
 	}
 	return
 }
