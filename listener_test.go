@@ -45,7 +45,7 @@ func TestListener(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	b, err := ioutil.ReadAll(res.Body)
+	b, _ := ioutil.ReadAll(res.Body)
 	res.Body.Close()
 
 	if s := string(b); s != "Hello World!" {
