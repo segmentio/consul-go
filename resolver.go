@@ -101,3 +101,8 @@ func queryAppendNodeMeta(query Query, nodeMeta map[string]string) Query {
 	}
 	return query
 }
+
+// DefaultResolver is the Resolver used by a Dialer when non has been specified.
+var DefaultResolver = &Resolver{
+	Near: "_agent",
+}
