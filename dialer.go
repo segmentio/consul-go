@@ -10,6 +10,11 @@ import (
 // The Dialer type mirrors the net.Dialer API but uses Consul to resolve service
 // names to network addresses instead of DNS.
 //
+// The Dialer always ignores ports specified in the addreses that it's trying to
+// connect to and uses the ports looked up from Consul instead, unless it was
+// given and address which is a valid IP representation in which case it does
+// not resolve the service name and directly establish the connection.
+//
 // For a full description of each of the fields please refer to the net.Dialer
 // documentation at https://golang.org/pkg/net/#Dialer.
 type Dialer struct {
@@ -38,7 +43,7 @@ func (d *Dialer) Dial(network string, address string) (net.Conn, error) {
 // (*net.Dialer).Dialcontext documentation at
 // https://golang.org/pkg/net/#Dialer.DialContext.
 func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	if host, port := splitHostPort(address); len(host) != 0 && net.ParseIP(host) == nil {
+	if host, _ := splitHostPort(address); len(host) != 0 && net.ParseIP(host) == nil {
 		addrs, err := d.resolver().LookupService(ctx, host)
 		if err != nil {
 			return nil, err
@@ -47,11 +52,6 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
 		}
 		address = addrs[0]
-
-		if len(port) != 0 {
-			address, _ = splitHostPort(address)
-			address = joinHostPort(address, port)
-		}
 	}
 
 	return (&net.Dialer{
@@ -90,9 +90,6 @@ func splitHostPort(s string) (string, string) {
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
 		return s, ""
-	}
-	if port == "0" {
-		port = ""
 	}
 	return host, port
 }
