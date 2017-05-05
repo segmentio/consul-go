@@ -11,12 +11,6 @@ import (
 )
 
 func TestClient(t *testing.T) {
-	t.Run("Basic", testClientBasic)
-	t.Run("Session", testSession)
-	t.Run("checkSession", testCheckSession)
-}
-
-func testClientBasic(t *testing.T) {
 	tests := []struct {
 		method string
 		path   string
@@ -89,12 +83,6 @@ func testClientBasic(t *testing.T) {
 		})
 	}
 
-}
-
-func testCheckSession(t *testing.T) {
-	if err := (&Client{}).checkSession("test"); err == nil {
-		t.Error("no error detected by consul.(*Client).checkSession on a client that had no session")
-	}
 }
 
 func newServerClient(handler func(http.ResponseWriter, *http.Request)) (server *httptest.Server, client *Client) {

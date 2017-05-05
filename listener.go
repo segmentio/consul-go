@@ -22,7 +22,7 @@ type Listener struct {
 	// A unique identifier for the service registered to consul. This only needs
 	// to be unique within the agent that the service registers to, and may be
 	// omitted. In that case, ServiceName is used instead.
-	ServiceID ServiceID
+	ServiceID string
 
 	// The logical name of the service registered to consul. If none is set, the
 	// program name is used instead.
@@ -36,11 +36,7 @@ type Listener struct {
 	// example, where the program may not have access to the external address to
 	// which clients should connect to in order to reach the service.
 	// By default, the address that new listeners accept connections on is used.
-	ServiceAddress net.IP
-
-	// If ServiceAddress is set, ServicePort should also be set to a non-zero
-	// value.
-	ServicePort int
+	ServiceAddress net.Addr
 
 	// Configures whether registering the service with specific tags should
 	// overwrite existing values.
@@ -76,13 +72,12 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 		return nil, err
 	}
 
-	service := ServiceConfig{
+	service := serviceConfig{
 		ID:                l.ServiceID,
 		Name:              l.ServiceName,
 		Tags:              l.ServiceTags,
-		Address:           l.ServiceAddress.String(),
-		Port:              l.ServicePort,
 		EnableTagOverride: l.ServiceEnableTagOverride,
+		Address:           lstn.Addr().String(),
 	}
 
 	if service.Name == "" {
@@ -90,16 +85,18 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 	}
 
 	if service.ID == "" {
-		service.ID = ServiceID(service.Name)
+		service.ID = service.Name
 	}
 
-	if service.Address == "<nil>" {
-		addr, port, _ := net.SplitHostPort(lstn.Addr().String())
-		service.Address = addr
-		service.Port, _ = strconv.Atoi(port)
+	if l.ServiceAddress != nil {
+		service.Address = l.ServiceAddress.String()
 	}
 
-	service.Checks = []CheckConfig{{
+	addr, port, _ := net.SplitHostPort(service.Address)
+	service.Address = addr
+	service.Port, _ = strconv.Atoi(port)
+
+	service.Checks = []checkConfig{{
 		Notes:    "Ensure consul can establish TCP connections to the service",
 		Interval: "10s",
 		Status:   "passing",
@@ -107,7 +104,7 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 	}}
 
 	if l.CheckHTTP != "" {
-		service.Checks = append(service.Checks, CheckConfig{
+		service.Checks = append(service.Checks, checkConfig{
 			Notes:    "Ensure consul can submit HTTP requests to the service",
 			Interval: "10s",
 			Status:   "passing",
@@ -121,19 +118,19 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 
 	if l.CheckInterval != 0 {
 		for i := range service.Checks {
-			service.Checks[i].Interval = S(l.CheckInterval)
+			service.Checks[i].Interval = seconds(l.CheckInterval)
 		}
 	}
 
 	if l.CheckDeregisterCriticalServiceAfter != 0 {
 		for i := range service.Checks {
-			service.Checks[i].DeregisterCriticalServiceAfter = S(l.CheckDeregisterCriticalServiceAfter)
+			service.Checks[i].DeregisterCriticalServiceAfter = seconds(l.CheckDeregisterCriticalServiceAfter)
 		}
 	}
 
 	client := l.client()
 
-	if err := client.RegisterService(ctx, service); err != nil {
+	if err := client.registerService(ctx, service); err != nil {
 		lstn.Close()
 		return nil, err
 	}
@@ -158,13 +155,13 @@ func (l *Listener) client() *Client {
 type listener struct {
 	net.Listener
 	client    *Client
-	serviceID ServiceID
+	serviceID string
 	once      sync.Once
 }
 
 func (l *listener) Close() error {
 	l.once.Do(func() {
-		l.client.DeregisterService(context.TODO(), l.serviceID)
+		l.client.deregisterService(context.TODO(), l.serviceID)
 	})
 	return l.Listener.Close()
 }

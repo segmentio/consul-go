@@ -16,7 +16,10 @@ func TestListener(t *testing.T) {
 	}
 
 	httpLstn, err := (&Listener{
-		ServiceName: "test-listener",
+		ServiceName:                         "test-listener",
+		CheckHTTP:                           "/",
+		CheckInterval:                       10 * time.Second,
+		CheckDeregisterCriticalServiceAfter: 90 * time.Second,
 	}).ListenContext(context.Background(), "tcp", ":0")
 	if err != nil {
 		t.Error(err)

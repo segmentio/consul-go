@@ -106,3 +106,9 @@ func queryAppendNodeMeta(query Query, nodeMeta map[string]string) Query {
 var DefaultResolver = &Resolver{
 	Near: "_agent",
 }
+
+// LookupService is a wrapper around the default resolver's LookupService
+// method.
+func LookupService(ctx context.Context, name string, tags ...string) ([]string, error) {
+	return DefaultResolver.LookupService(ctx, name, tags...)
+}
