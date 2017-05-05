@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"time"
 )
 
@@ -49,7 +48,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 		}
 		address = addrs[0]
 
-		if port != 0 {
+		if len(port) != 0 {
 			address, _ = splitHostPort(address)
 			address = joinHostPort(address, port)
 		}
@@ -83,19 +82,17 @@ func DialContext(ctx context.Context, network string, address string) (net.Conn,
 	return (&Dialer{}).DialContext(ctx, network, address)
 }
 
-func joinHostPort(s string, p int) string {
-	return net.JoinHostPort(s, strconv.Itoa(p))
+func joinHostPort(host string, port string) string {
+	return net.JoinHostPort(host, port)
 }
 
-func splitHostPort(s string) (string, int) {
+func splitHostPort(s string) (string, string) {
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
-		return s, 0
+		return s, ""
 	}
-	return host, atoi(port)
-}
-
-func atoi(s string) int {
-	v, _ := strconv.Atoi(s)
-	return v
+	if port == "0" {
+		port = ""
+	}
+	return host, port
 }

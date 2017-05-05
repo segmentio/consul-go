@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 
 	"github.com/segmentio/objconv/json"
@@ -23,7 +24,7 @@ func TestDialer(t *testing.T) {
 			Address string
 			Port    int
 		}
-		json.NewEncoder(res).Encode([]struct{ Service service }{{Service: service{addr, port}}})
+		json.NewEncoder(res).Encode([]struct{ Service service }{{Service: service{addr, atoi(port)}}})
 	})
 	defer consulServer.Close()
 
@@ -39,7 +40,7 @@ func TestDialer(t *testing.T) {
 		},
 	}
 
-	res, err := httpClient.Get("http://whaetever:0/")
+	res, err := httpClient.Get("http://whatever:0/")
 	if err != nil {
 		t.Error(err)
 	}
@@ -49,4 +50,9 @@ func TestDialer(t *testing.T) {
 	if s := string(b); s != "Hello World!" {
 		t.Error("bad response:", s)
 	}
+}
+
+func atoi(s string) int {
+	v, _ := strconv.Atoi(s)
+	return v
 }
