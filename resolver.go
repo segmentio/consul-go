@@ -37,7 +37,7 @@ type Resolver struct {
 // resolver's configuration and the given list of extra service tags to narrow
 // the result set. Only addresses of healthy services are returned by the lookup
 // operation.
-func (rslv *Resolver) LookupService(ctx context.Context, name string, tags ...string) (addrs []string, err error) {
+func (rslv *Resolver) LookupService(ctx context.Context, name string, tags ...string) (addrs []net.Addr, err error) {
 	var results []struct {
 		// There are other fields in the response which have been omitted to
 		// avoiding parsing a bunch of throw-away values. Refer to the consul
@@ -66,10 +66,13 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string, tags ...st
 		return
 	}
 
-	addrs = make([]string, len(results))
+	addrs = make([]net.Addr, len(results))
 
 	for i, res := range results {
-		addrs[i] = net.JoinHostPort(res.Service.Address, strconv.Itoa(res.Service.Port))
+		addrs[i] = &serviceAddr{
+			addr: res.Service.Address,
+			port: res.Service.Port,
+		}
 	}
 
 	return
@@ -109,6 +112,19 @@ var DefaultResolver = &Resolver{
 
 // LookupService is a wrapper around the default resolver's LookupService
 // method.
-func LookupService(ctx context.Context, name string, tags ...string) ([]string, error) {
+func LookupService(ctx context.Context, name string, tags ...string) ([]net.Addr, error) {
 	return DefaultResolver.LookupService(ctx, name, tags...)
+}
+
+type serviceAddr struct {
+	addr string
+	port int
+}
+
+func (a *serviceAddr) Network() string {
+	return ""
+}
+
+func (a *serviceAddr) String() string {
+	return net.JoinHostPort(a.addr, strconv.Itoa(a.port))
 }
