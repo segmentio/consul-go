@@ -2,6 +2,7 @@ package consul
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -66,10 +67,10 @@ func testLookupService(t *testing.T) {
 		t.Error(err)
 	}
 
-	if !reflect.DeepEqual(addrs, []string{
-		"192.168.0.1:4242",
-		"192.168.0.2:4242",
-		"192.168.0.3:4242",
+	if !reflect.DeepEqual(addrs, []net.Addr{
+		&serviceAddr{"192.168.0.1", 4242},
+		&serviceAddr{"192.168.0.2", 4242},
+		&serviceAddr{"192.168.0.3", 4242},
 	}) {
 		t.Error("bad addresses returned:", addrs)
 	}

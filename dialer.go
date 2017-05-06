@@ -51,7 +51,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 		if len(addrs) == 0 {
 			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
 		}
-		address = addrs[0]
+		address = addrs[0].String()
 	}
 
 	return (&net.Dialer{
