@@ -64,8 +64,8 @@ func init() {
 // Clients are safe to used concurrently from multiple goroutines after they
 // were first constructed.
 type Client struct {
-	// Addr of the consul agent this client sends requests to.
-	// If Address is an empty string then DefaultAddress is used instead.
+	// Address of the consul agent this client sends requests to.
+	// DefaultAddress is used if this field is empty.
 	Address string
 
 	// UserAgent may be set to any string which identify who the client is.
