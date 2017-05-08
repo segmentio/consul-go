@@ -137,3 +137,35 @@ func main() {
     }).Serve(httpLstn)
 }
 ```
+
+## Transport (HTTP)
+
+The approach of overwritting the dialer in the HTTP transport may not always be
+ideal because of connection pooling, there will be a *sticky* effect where all
+requests going out for a single hostname would hit the same services. This is
+due to the fact that once the connection is established no more consul lookups
+are made to resolve service names.  
+An alternative option is to make a service resolution call for every request,
+which may resolve to different network addresses and better distribute the load
+among the pool of available services. The `httpconsul` package has a decorator
+that is intended to transparently provide this feature on `http.RoundTripper`
+instances.
+
+```go
+package main
+
+import (
+    "net/http"
+
+    "github.com/segmentio/consul-go/httpconsul"
+)
+
+func main() {
+    // Wraps the default transport so all service names are looked up in consul.
+    // The consul client uses its own transport so there's no risk of recursive
+    // loop here.
+    http.DefaultTransport = httpconsul.NewTransport(http.DefaultTransport)
+
+    // ...
+}
+```
