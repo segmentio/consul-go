@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -158,13 +159,11 @@ type ResolverCache struct {
 // LookupService resolves a service name by fetching the address list from the
 // cache, or calling lookup if the name did not exist.
 func (cache *ResolverCache) LookupService(ctx context.Context, name string, lookup LookupServiceFunc) ([]net.Addr, error) {
-	cache.once.Do(func() {
-		cache.init()
-	})
+	cache.once.Do(cache.init)
 
 	now := time.Now()
-	exp := now.Add(cache.timeout())
-	entry, locked := cache.cmap.lookup(name, now, exp)
+	timeout := cache.timeout()
+	entry, locked := cache.cmap.lookup(name, now, now.Add(timeout))
 
 	if locked {
 		// TODO: check the error type here and discard things like context
@@ -174,8 +173,30 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	}
 
 	entry.mutex.RLock()
-	addrs, err := entry.addrs, entry.err
+	addrs, err, expireAt := entry.addrs, entry.err, entry.expireAt
 	entry.mutex.RUnlock()
+
+	// To reduce the chances of getting cache misses on expired entries we
+	// prefetch the updated list of addresses when we're getting close to the
+	// expiration time. This is not a perfect solution and works when fetching
+	// the address list completes before the cleanup goroutine gets rid of the
+	// cache entry, but it has the advantage of being a fully non-blocking
+	// approach.
+	if now.After(expireAt.Add(-timeout / 10)) {
+		if atomic.CompareAndSwapUint32(&entry.lock, 0, 1) {
+			addrs, err := lookup(ctx, name)
+			exp := time.Now().Add(timeout)
+
+			entry.mutex.Lock()
+			entry.addrs = addrs
+			entry.err = err
+			entry.expireAt = exp
+			entry.mutex.Unlock()
+
+			atomic.StoreUint32(&entry.lock, 0)
+		}
+	}
+
 	return addrs, err
 }
 
@@ -205,6 +226,7 @@ type resolverCacheMap struct {
 
 type resolverCacheEntry struct {
 	mutex    sync.RWMutex
+	lock     uint32
 	name     string
 	addrs    []net.Addr
 	err      error
@@ -262,13 +284,27 @@ func (cmap *resolverCacheMap) deleteExpired(now time.Time) {
 }
 
 func (cmap *resolverCacheMap) listExpired(now time.Time) []*resolverCacheEntry {
+	entries := cmap.list()
+	i := 0
+
+	for _, entry := range entries {
+		entries[i] = entry
+		entry.mutex.RLock()
+		if now.After(entry.expireAt) {
+			i++
+		}
+		entry.mutex.RUnlock()
+	}
+
+	return entries[:i]
+}
+
+func (cmap *resolverCacheMap) list() []*resolverCacheEntry {
 	cmap.mutex.RLock()
 	entries := make([]*resolverCacheEntry, 0, len(cmap.entries))
 
 	for _, entry := range cmap.entries {
-		if now.After(entry.expireAt) {
-			entries = append(entries, entry)
-		}
+		entries = append(entries, entry)
 	}
 
 	cmap.mutex.RUnlock()

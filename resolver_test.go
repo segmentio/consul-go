@@ -102,19 +102,21 @@ func TestResolverCache(t *testing.T) {
 			return list, nil
 		}
 
-		for i := 0; i != 4; i++ {
+		// Loop for 30ms, there should 4 cache misses due to prefetching at
+		// 0ms, 9ms, 19ms, and 29ms.
+		for now, exp := time.Now(), time.Now().Add(30*time.Millisecond); now.Before(exp); now = time.Now() {
 			addrs, err := cache.LookupService(context.Background(), "", lookup)
 
 			if err != nil {
-				t.Errorf("error returned by service lookup #%d: %s", i, err)
+				t.Error("error returned by service lookup:", err)
 			}
 
 			if !reflect.DeepEqual(addrs, list) {
-				t.Errorf("bad address list returned by service lookup #%d: %s", i, addrs)
+				t.Error("bad address list returned by service lookup:", err)
 			}
 		}
 
-		if n := atomic.LoadInt32(&miss); n != 1 {
+		if n := atomic.LoadInt32(&miss); n != 4 {
 			t.Error("bad number of cache misses:", n)
 		}
 	})
@@ -136,11 +138,11 @@ func TestResolverCache(t *testing.T) {
 			addrs, err := cache.LookupService(context.Background(), "", lookup)
 
 			if err != nil {
-				t.Errorf("error returned by service lookup #%d: %s", i, err)
+				t.Error("error returned by service lookup:", err)
 			}
 
 			if !reflect.DeepEqual(addrs, list) {
-				t.Errorf("bad address list returned by service lookup #%d: %s", i, addrs)
+				t.Error("bad address list returned by service lookup:", addrs)
 			}
 
 			// sleep for a little while to let the cache entries expire
