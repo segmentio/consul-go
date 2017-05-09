@@ -68,7 +68,7 @@ type Tomography struct {
 
 	// Configures how often the state is updated. If zero, the state is updated
 	// every second.
-	Timeout time.Duration
+	CacheTimeout time.Duration
 
 	// Cached state of the consul network tomography.
 	nodes cachedValue
@@ -78,7 +78,7 @@ type Tomography struct {
 // datacenter.
 func (t *Tomography) NodeCoordinates(ctx context.Context) (NodeCoordinates, error) {
 	now := time.Now()
-	exp := now.Add(t.timeout())
+	exp := now.Add(t.cacheTimeout())
 
 	val, err := t.nodes.lookup(now, exp, func() (interface{}, error) {
 		return t.client().nodeCoordinates(ctx)
@@ -95,9 +95,9 @@ func (t *Tomography) client() *Client {
 	return DefaultClient
 }
 
-func (t *Tomography) timeout() time.Duration {
-	if timeout := t.Timeout; timeout != 0 {
-		return timeout
+func (t *Tomography) cacheTimeout() time.Duration {
+	if cacheTimeout := t.CacheTimeout; cacheTimeout != 0 {
+		return cacheTimeout
 	}
 	return 1 * time.Second
 }

@@ -13,7 +13,7 @@ type Agent struct {
 
 	// Configures how often the state is updated. If zero, the state is updated
 	// every second.
-	Timeout time.Duration
+	CacheTimeout time.Duration
 
 	// Cached agent configuration.
 	config cachedValue
@@ -35,16 +35,16 @@ func (a *Agent) client() *Client {
 	return DefaultClient
 }
 
-func (a *Agent) timeout() time.Duration {
-	if timeout := a.Timeout; timeout != 0 {
-		return timeout
+func (a *Agent) cacheTimeout() time.Duration {
+	if cacheTimeout := a.CacheTimeout; cacheTimeout != 0 {
+		return cacheTimeout
 	}
 	return 1 * time.Second
 }
 
 func (a *Agent) load(ctx context.Context) (*agentConfig, error) {
 	now := time.Now()
-	exp := now.Add(a.timeout())
+	exp := now.Add(a.cacheTimeout())
 
 	val, err := a.config.lookup(now, exp, func() (interface{}, error) {
 		config, err := a.client().agentConfig(ctx)

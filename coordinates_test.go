@@ -40,7 +40,7 @@ func TestTomography(t *testing.T) {
 
 	t.Run("exercise the node coordinates automatic update", func(t *testing.T) {
 		tomography := &Tomography{
-			Timeout: 10 * time.Millisecond,
+			CacheTimeout: 10 * time.Millisecond,
 		}
 
 		// The first call triggers the asynchronous automatic update.
