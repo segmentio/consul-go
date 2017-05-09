@@ -24,8 +24,9 @@ type Endpoint struct {
 	// running.
 	Meta map[string]string
 
-	// RTT is an estimation of the round-trip-time between the node specified in
-	// Resolver.Near and the endpoint (may be zero if Near wasn't set).
+	// RTT is an estimation of the round-trip-time between the node specified by
+	// Resolver.Agent and the endpoint (may be zero if the information wasn't yet
+	// available).
 	RTT time.Duration
 
 	// This field is used internally by the weighted shuffle algorithms,
