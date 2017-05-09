@@ -2,7 +2,6 @@ package consul
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -34,7 +33,6 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 		expectQuery := url.Values{
 			"passing":   {""},
 			"dc":        {"dc1"},
-			"near":      {"_agent"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
 		}
@@ -61,9 +59,9 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 
 	rslv := Resolver{
 		Client:      client,
-		Near:        "_agent",
 		ServiceTags: []string{"A", "B", "C"},
 		NodeMeta:    map[string]string{"answer": "42"},
+		OnlyPassing: true,
 		Cache:       cache,
 	}
 
@@ -73,20 +71,20 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 		t.Error(err)
 	}
 
-	if !reflect.DeepEqual(addrs, []net.Addr{
-		&serviceAddr{"192.168.0.1", 4242},
-		&serviceAddr{"192.168.0.2", 4242},
-		&serviceAddr{"192.168.0.3", 4242},
+	if !reflect.DeepEqual(addrs, []Endpoint{
+		{Addr: &serviceAddr{"192.168.0.1", 4242}},
+		{Addr: &serviceAddr{"192.168.0.2", 4242}},
+		{Addr: &serviceAddr{"192.168.0.3", 4242}},
 	}) {
 		t.Error("bad addresses returned:", addrs)
 	}
 }
 
 func TestResolverCache(t *testing.T) {
-	list := []net.Addr{
-		&serviceAddr{"192.168.0.1", 4242},
-		&serviceAddr{"192.168.0.2", 4242},
-		&serviceAddr{"192.168.0.3", 4242},
+	list := []Endpoint{
+		{Addr: &serviceAddr{"192.168.0.1", 4242}},
+		{Addr: &serviceAddr{"192.168.0.2", 4242}},
+		{Addr: &serviceAddr{"192.168.0.3", 4242}},
 	}
 
 	t.Run("ensure there are cache hits when making service lookup calls in a tight loop", func(t *testing.T) {
@@ -97,7 +95,7 @@ func TestResolverCache(t *testing.T) {
 			Timeout: 10 * time.Millisecond,
 		}
 
-		lookup := func(ctx context.Context, name string) (addrs []net.Addr, err error) {
+		lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {
 			atomic.AddInt32(&miss, 1)
 			return list, nil
 		}
@@ -129,7 +127,7 @@ func TestResolverCache(t *testing.T) {
 			Timeout: 10 * time.Millisecond,
 		}
 
-		lookup := func(ctx context.Context, name string) (addrs []net.Addr, err error) {
+		lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {
 			atomic.AddInt32(&miss, 1)
 			return list, nil
 		}

@@ -20,14 +20,6 @@ type Resolver struct {
 	// default client should be used.
 	Client *Client
 
-	// Near may be set to the address of a node which is used to sort the list
-	// of resolved addresses based on the estimated round trip time from that
-	// node.
-	//
-	// Setting this field to "_agent" will use the consul agent's node for the
-	// sort.
-	Near string
-
 	// A list of service tags used to filter the result set. Only addresses of
 	// services that match those tags will be returned by LookupService.
 	ServiceTags []string
@@ -36,39 +28,79 @@ type Resolver struct {
 	// nodes that have matching metadata will be returned by LookupService.
 	NodeMeta map[string]string
 
+	// If set to true, the resolver only returns services that are passing their
+	// health checks.
+	OnlyPassing bool
+
 	// Cache used by the resolver to reduce the number of round-trips to consul.
 	// If set to nil then no cache is used.
 	//
 	// ResolverCache instances should not be shared by multiple resolvers
 	// because the cache uses the service name as a lookup key, but the resolver
-	// may apply filters based on its configuration.
+	// may apply filters based on the values of the ServiceTags, NodeMeta, and
+	// OnlyPassing fields.
 	Cache *ResolverCache
+
+	// Agent is used to set the origin from which the distance to each endpoints
+	// are computed. If nil, DefaultAgent is used instead.
+	Agent *Agent
+
+	// Tomography is used when Agent is set to compute the distance from the
+	// agnet to the endpoints. If nil, DefaultTomography is used instead.
+	Tomography *Tomography
+
+	// Sort is called to order the list of endpoints returned by the resolver.
+	// Setting this field to nil means no ordering of the endpoints is done.
+	//
+	// If the resolver is intended to be used to distribute load across a pool
+	// of services it is important to set a Sort function that shuffles the list
+	// of endpoints, otherwise consecutive calls would likely return the list in
+	// the same order, and picking the first item would result in routing all
+	// traffic to a single instance of the service.
+	Sort func([]Endpoint)
 }
 
-// LookupService resolves a service name to a list of addresses using the
-// resolver's configuration to narrow the result set. Only addresses of healthy
-// services are returned by the lookup operation.
-func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]net.Addr, error) {
-	if rslv.Cache != nil {
-		return rslv.Cache.LookupService(ctx, name, rslv.lookupService)
+// LookupService resolves a service name to a list of endpoints using the
+// resolver's configuration to narrow and sort the result set.
+func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoint, error) {
+	var list []Endpoint
+	var err error
+
+	if cache := rslv.Cache; cache != nil {
+		list, err = cache.LookupService(ctx, name, rslv.lookupService)
+	} else {
+		list, err = rslv.lookupService(ctx, name)
 	}
-	return rslv.lookupService(ctx, name)
+
+	if err == nil && rslv.Sort != nil {
+		rslv.Sort(list)
+	}
+
+	return list, err
 }
 
-func (rslv *Resolver) lookupService(ctx context.Context, name string) (addrs []net.Addr, err error) {
+func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []Endpoint, err error) {
 	var results []struct {
 		// There are other fields in the response which have been omitted to
 		// avoiding parsing a bunch of throw-away values. Refer to the consul
 		// documentation for a full description of the schema:
 		// https://www.consul.io/api/health.html#list-nodes-for-service
+		Node struct {
+			Node string
+			Meta map[string]string
+		}
 		Service struct {
 			Address string
 			Port    int
+			Tags    []string
 		}
 	}
 
-	query := make(Query, 0, 2+len(rslv.NodeMeta)+len(rslv.ServiceTags))
-	query = append(query, Param{Name: "passing"})
+	query := make(Query, 0, 1+len(rslv.NodeMeta)+len(rslv.ServiceTags))
+
+	if rslv.OnlyPassing {
+		query = append(query, Param{Name: "passing"})
+	}
 
 	for key, value := range rslv.NodeMeta {
 		query = append(query, Param{
@@ -84,23 +116,32 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (addrs []n
 		})
 	}
 
-	if near := rslv.Near; len(near) != 0 {
-		query = append(query, Param{
-			Name:  "near",
-			Value: near,
-		})
-	}
-
 	if err = rslv.client().Get(ctx, "/v1/health/service/"+name, query, &results); err != nil {
 		return
 	}
 
-	addrs = make([]net.Addr, len(results))
+	list = make([]Endpoint, len(results))
 
 	for i, res := range results {
-		addrs[i] = &serviceAddr{
-			addr: res.Service.Address,
-			port: res.Service.Port,
+		list[i] = Endpoint{
+			Addr: &serviceAddr{
+				addr: res.Service.Address,
+				port: res.Service.Port,
+			},
+			Tags: res.Service.Tags,
+			Node: res.Node.Node,
+			Meta: res.Node.Meta,
+		}
+	}
+
+	agent, _ := rslv.agent().NodeName(ctx)
+	nodes, _ := rslv.tomography().NodeCoordinates(ctx)
+
+	if from, ok := nodes[agent]; ok {
+		for i := range list {
+			if to, ok := nodes[list[i].Node]; ok {
+				list[i].RTT = Distance(from, to)
+			}
 		}
 	}
 
@@ -114,14 +155,29 @@ func (rslv *Resolver) client() *Client {
 	return DefaultClient
 }
 
+func (rslv *Resolver) agent() *Agent {
+	if agent := rslv.Agent; agent != nil {
+		return agent
+	}
+	return DefaultAgent
+}
+
+func (rslv *Resolver) tomography() *Tomography {
+	if tomography := rslv.Tomography; tomography != nil {
+		return tomography
+	}
+	return DefaultTomography
+}
+
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
-	Near: "_agent",
+	OnlyPassing: true,
+	Sort:        WeightedShuffleOnRTT,
 }
 
 // LookupService is a wrapper around the default resolver's LookupService
 // method.
-func LookupService(ctx context.Context, name string) ([]net.Addr, error) {
+func LookupService(ctx context.Context, name string) ([]Endpoint, error) {
 	return DefaultResolver.LookupService(ctx, name)
 }
 
@@ -140,7 +196,7 @@ func (a *serviceAddr) String() string {
 
 // LookupServiceFunc is the signature of functions that can be used to lookup
 // service names.
-type LookupServiceFunc func(context.Context, string) ([]net.Addr, error)
+type LookupServiceFunc func(context.Context, string) ([]Endpoint, error)
 
 // The ResolverCache type provides the implementation of a caching layer for
 // service name resolutions.
@@ -158,7 +214,7 @@ type ResolverCache struct {
 
 // LookupService resolves a service name by fetching the address list from the
 // cache, or calling lookup if the name did not exist.
-func (cache *ResolverCache) LookupService(ctx context.Context, name string, lookup LookupServiceFunc) ([]net.Addr, error) {
+func (cache *ResolverCache) LookupService(ctx context.Context, name string, lookup LookupServiceFunc) ([]Endpoint, error) {
 	cache.once.Do(cache.init)
 
 	now := time.Now()
@@ -168,12 +224,12 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	if locked {
 		// TODO: check the error type here and discard things like context
 		// cancellations and timeouts?
-		entry.addrs, entry.err = lookup(ctx, name)
+		entry.res, entry.err = lookup(ctx, name)
 		entry.mutex.Unlock()
 	}
 
 	entry.mutex.RLock()
-	addrs, err, expireAt := entry.addrs, entry.err, entry.expireAt
+	res, err, expireAt := entry.res, entry.err, entry.expireAt
 	entry.mutex.RUnlock()
 
 	// To reduce the chances of getting cache misses on expired entries we
@@ -184,11 +240,11 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	// approach.
 	if now.After(expireAt.Add(-timeout / 10)) {
 		if atomic.CompareAndSwapUint32(&entry.lock, 0, 1) {
-			addrs, err := lookup(ctx, name)
+			res, err := lookup(ctx, name)
 			exp := time.Now().Add(timeout)
 
 			entry.mutex.Lock()
-			entry.addrs = addrs
+			entry.res = res
 			entry.err = err
 			entry.expireAt = exp
 			entry.mutex.Unlock()
@@ -197,7 +253,13 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 		}
 	}
 
-	return addrs, err
+	// We have to make a copy to let the caller own the value returned by this
+	// method. Otherwise it could make changes that modify the cache's internal
+	// memory, which would cause races and unexpected behaviors between calls to
+	// the LookupService method.
+	list := make([]Endpoint, len(res))
+	copy(list, res)
+	return list, err
 }
 
 func (cache *ResolverCache) init() {
@@ -228,7 +290,7 @@ type resolverCacheEntry struct {
 	mutex    sync.RWMutex
 	lock     uint32
 	name     string
-	addrs    []net.Addr
+	res      []Endpoint
 	err      error
 	expireAt time.Time
 }
