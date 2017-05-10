@@ -92,7 +92,7 @@ func TestResolverCache(t *testing.T) {
 
 		miss := int32(0)
 		cache := &ResolverCache{
-			Timeout: 10 * time.Millisecond,
+			CacheTimeout: 10 * time.Millisecond,
 		}
 
 		lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {
@@ -124,7 +124,7 @@ func TestResolverCache(t *testing.T) {
 
 		miss := int32(0)
 		cache := &ResolverCache{
-			Timeout: 10 * time.Millisecond,
+			CacheTimeout: 10 * time.Millisecond,
 		}
 
 		lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {

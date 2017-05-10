@@ -206,7 +206,7 @@ type LookupServiceFunc func(context.Context, string) ([]Endpoint, error)
 type ResolverCache struct {
 	// The maximum age of cache entries. If zero, a default value of 1 second is
 	// used.
-	Timeout time.Duration
+	CacheTimeout time.Duration
 
 	once sync.Once
 	cmap *resolverCacheMap
@@ -218,8 +218,8 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	cache.once.Do(cache.init)
 
 	now := time.Now()
-	timeout := cache.timeout()
-	entry, locked := cache.cmap.lookup(name, now, now.Add(timeout))
+	cacheTimeout := cache.cacheTimeout()
+	entry, locked := cache.cmap.lookup(name, now, now.Add(cacheTimeout))
 
 	if locked {
 		// TODO: check the error type here and discard things like context
@@ -238,10 +238,10 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	// the address list completes before the cleanup goroutine gets rid of the
 	// cache entry, but it has the advantage of being a fully non-blocking
 	// approach.
-	if now.After(expireAt.Add(-timeout / 10)) {
+	if now.After(expireAt.Add(-cacheTimeout / 10)) {
 		if atomic.CompareAndSwapUint32(&entry.lock, 0, 1) {
 			res, err := lookup(ctx, name)
-			exp := time.Now().Add(timeout)
+			exp := time.Now().Add(cacheTimeout)
 
 			entry.mutex.Lock()
 			entry.res = res
@@ -270,13 +270,13 @@ func (cache *ResolverCache) init() {
 	ctx, cancel := context.WithCancel(context.Background())
 	runtime.SetFinalizer(cache, func(_ *ResolverCache) { cancel() })
 
-	interval := cache.timeout() / 2
+	interval := cache.cacheTimeout() / 2
 	go cache.cmap.autoDeleteExpired(ctx, interval)
 }
 
-func (cache *ResolverCache) timeout() time.Duration {
-	if timeout := cache.Timeout; timeout != 0 {
-		return cache.Timeout
+func (cache *ResolverCache) cacheTimeout() time.Duration {
+	if cacheTimeout := cache.CacheTimeout; cacheTimeout != 0 {
+		return cache.CacheTimeout
 	}
 	return 1 * time.Second
 }
