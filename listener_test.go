@@ -4,17 +4,11 @@ import (
 	"context"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 )
 
 func TestListener(t *testing.T) {
-	if os.Getenv("CIRCLE_PROJECT_USERNAME") != "" {
-		// Consul takes a while to start...
-		time.Sleep(10 * time.Second)
-	}
-
 	httpLstn, err := (&Listener{
 		ServiceName:                         "test-listener",
 		CheckHTTP:                           "/",

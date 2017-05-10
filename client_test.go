@@ -4,11 +4,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/segmentio/objconv/json"
 )
+
+func init() {
+	if os.Getenv("CIRCLE_PROJECT_USERNAME") != "" {
+		// Consul takes a while to start...
+		time.Sleep(10 * time.Second)
+	}
+}
 
 func TestClient(t *testing.T) {
 	tests := []struct {

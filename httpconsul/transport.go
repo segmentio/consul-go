@@ -52,7 +52,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if len(req.Host) == 0 {
 			req.Host = req.URL.Host
 		}
-		req.URL.Host = addrs[0].String()
+		req.URL.Host = addrs[0].Addr.String()
 	}
 	return t.base.RoundTrip(req)
 }
