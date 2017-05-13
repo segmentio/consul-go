@@ -11,13 +11,13 @@ import (
 func TestTryLock(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	keys := []string{
-		"test-1",
-		"test-2",
-		"test-3",
+		"test-trylock-1",
+		"test-trylock-2",
+		"test-trylock-3",
 	}
 
 	for i := 0; i != len(keys); i++ {
@@ -53,7 +53,7 @@ func TestLock(t *testing.T) {
 	t.Parallel()
 	concurrency := int32(0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	wg := sync.WaitGroup{}
@@ -65,7 +65,7 @@ func TestLock(t *testing.T) {
 			defer wg.Done()
 
 			t.Logf("[%02d] lock", i)
-			lock, unlock := Lock(ctx, "test")
+			lock, unlock := Lock(ctx, "test-lock-1", "test-lock-2", "test-lock-3")
 			defer unlock()
 
 			if n := int(atomic.AddInt32(&concurrency, +1)); n > 1 {

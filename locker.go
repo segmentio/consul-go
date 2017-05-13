@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,27 +24,40 @@ type Locker struct {
 	LockDelay time.Duration
 }
 
-// Lock acquires a lock of the given key. The method blocks until the lock was
+// Lock acquires locks on the given keys. The method blocks until the locks were
 // acquired, or the context was camceled. The returned context will be canceled
-// when the lock is released (by calling the cancellation function), or if the
-// ownership was lost, in this case the context's Err method returns Unlocked.
-func (l *Locker) Lock(ctx context.Context, key string) (context.Context, context.CancelFunc) {
+// when the locks are released (by calling the cancellation function), or if the
+// ownership was lost, in this case the contexts' Err method returns Unlocked.
+func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
 	retryInterval := 1 * time.Second
-	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", key)
+	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", keys)
 
 	deadline, ok := ctx.Deadline()
 	if ok {
 		retryInterval = deadline.Sub(time.Now()) / 10
 	}
 
+	locks := make([]ctxCancel, 0, len(keys))
+	sortedKeys := sortedKeys(keys)
+
 	for {
-		switch lockCtx, lockCancel, err := l.tryLock(sessionCtx, key); {
-		case lockCtx != nil:
-			return lockCtx, func() { lockCancel(); sessionCancel() }
-		case err != nil:
-			sessionCancel()
-			return errorContext(ctx, err)
+		for _, key := range sortedKeys {
+			lockCtx, lockCancel, _ := l.tryLock(sessionCtx, key)
+			if lockCtx == nil {
+				break
+			}
+			locks = append(locks, ctxCancel{lockCtx, lockCancel})
 		}
+
+		if len(locks) == len(keys) {
+			multi := newMultiCtx(sortedKeys, locks)
+			return multi, func() { multi.cancel(); sessionCancel() }
+		}
+
+		for _, lock := range locks {
+			lock.cancel()
+		}
+		locks = locks[:0]
 
 		timer := time.NewTicker(retryInterval)
 		select {
@@ -95,6 +111,11 @@ func (l *Locker) tryLock(ctx context.Context, key string) (context.Context, cont
 }
 
 func (l *Locker) withSession(ctx context.Context, name string, args ...interface{}) (context.Context, context.CancelFunc) {
+	if ctx.Value(SessionKey) != nil {
+		// The context that was used to create the lock is already a session, we
+		// can use it directly instead of recreating one.
+		return ctx, func() {}
+	}
 	lockDelay := l.lockDelay()
 	return WithSession(ctx, Session{
 		Client:    l.client(),
@@ -120,8 +141,8 @@ func (l *Locker) lockDelay() time.Duration {
 }
 
 // Lock calls DefaultLocker.Lock.
-func Lock(ctx context.Context, key string) (context.Context, context.CancelFunc) {
-	return DefaultLocker.Lock(ctx, key)
+func Lock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
+	return DefaultLocker.Lock(ctx, keys...)
 }
 
 // TryLock calls DefaultLocker.TryLock.
@@ -207,6 +228,100 @@ func (l *lockCtx) run() {
 	}
 }
 
+type ctxCancel struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+type multiLockCtx struct {
+	locks    []ctxCancel
+	keys     []string
+	deadline time.Time
+	err      atomic.Value
+	once     sync.Once
+	done     chan struct{}
+}
+
+func newMultiCtx(keys []string, locks []ctxCancel) *multiLockCtx {
+	m := &multiLockCtx{
+		locks: locks,
+		done:  make(chan struct{}),
+	}
+
+	for _, lock := range locks {
+		if deadline, ok := lock.ctx.Deadline(); ok {
+			if m.deadline.IsZero() || deadline.Before(m.deadline) {
+				m.deadline = deadline
+			}
+		}
+	}
+
+	go m.run()
+	return m
+}
+
+func (m *multiLockCtx) Deadline() (time.Time, bool) {
+	return m.deadline, !m.deadline.IsZero()
+}
+
+func (m *multiLockCtx) Done() <-chan struct{} {
+	return m.done
+}
+
+func (m *multiLockCtx) Err() error {
+	err, _ := m.err.Load().(error)
+	return err
+}
+
+func (m *multiLockCtx) Value(key interface{}) interface{} {
+	if key == LockKey {
+		return "[" + strings.Join(m.keys, ",") + "]"
+	}
+	for _, lock := range m.locks {
+		if value := lock.ctx.Value(key); value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func (m *multiLockCtx) cancel() {
+	m.cancelWithError(context.Canceled)
+}
+
+func (m *multiLockCtx) cancelWithError(err error) {
+	m.once.Do(func() {
+		m.err.Store(err)
+		close(m.done)
+
+		wg := sync.WaitGroup{}
+		wg.Add(len(m.locks))
+
+		for _, lock := range m.locks {
+			go func(cancel context.CancelFunc) {
+				cancel()
+				wg.Done()
+			}(lock.cancel)
+		}
+
+		wg.Wait()
+	})
+}
+
+func (m *multiLockCtx) run() {
+	cases := make([]reflect.SelectCase, 0, len(m.locks))
+
+	for _, lock := range m.locks {
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(lock.ctx.Done()),
+		})
+	}
+
+	n, _, _ := reflect.Select(cases)
+	m.cancelWithError(m.locks[n].ctx.Err())
+}
+
 func (c *Client) acquireLock(ctx context.Context, key string, sid string) (locked bool, err error) {
 	err = c.Put(ctx, "/v1/kv/"+key, Query{{"acquire", sid}}, nil, &locked)
 	return
@@ -215,4 +330,16 @@ func (c *Client) acquireLock(ctx context.Context, key string, sid string) (locke
 func (c *Client) releaseLock(ctx context.Context, key string, sid string) (err error) {
 	err = c.Put(ctx, "/v1/kv/"+key, Query{{"release", sid}}, nil, nil)
 	return
+}
+
+func copyKeys(s []string) []string {
+	c := make([]string, len(s))
+	copy(c, s)
+	return c
+}
+
+func sortedKeys(s []string) []string {
+	s = copyKeys(s)
+	sort.Strings(s)
+	return s
 }
