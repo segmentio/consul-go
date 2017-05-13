@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,9 +154,9 @@ var (
 	// management functions.
 	DefaultLocker = &Locker{}
 
-	// LockKey is used to lookup the key held by a lock from its associated
+	// LocksKey is used to lookup the keys held by a lock from its associated
 	// context.
-	LockKey = &contextKey{"consul-lock-key"}
+	LocksKey = &contextKey{"consul-locks-key"}
 
 	// Unlocked is the error returned by contexts when the lock they were
 	// associated with has been lost.
@@ -198,8 +197,8 @@ func (l *lockCtx) Err() error {
 }
 
 func (l *lockCtx) Value(key interface{}) interface{} {
-	if key == LockKey {
-		return l.key
+	if key == LocksKey {
+		return []string{l.key}
 	}
 	return l.ctx.Value(key)
 }
@@ -274,8 +273,8 @@ func (m *multiLockCtx) Err() error {
 }
 
 func (m *multiLockCtx) Value(key interface{}) interface{} {
-	if key == LockKey {
-		return "[" + strings.Join(m.keys, ",") + "]"
+	if key == LocksKey {
+		return copyKeys(m.keys)
 	}
 	for _, lock := range m.locks {
 		if value := lock.ctx.Value(key); value != nil {

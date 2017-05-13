@@ -24,18 +24,20 @@ func TestTryLock(t *testing.T) {
 		lock, unlock := TryLock(ctx, keys...)
 		defer unlock()
 
-		key := lock.Value(LockKey)
+		lockKeys := lock.Value(LocksKey)
 		ok := false
 
-		for _, k := range keys {
-			if k == key {
-				ok = true
-				break
+		for _, k1 := range keys {
+			for _, k2 := range lockKeys.([]string) {
+				if k1 == k2 {
+					ok = true
+					break
+				}
 			}
 		}
 
 		if !ok {
-			t.Error("bad lock key:", key)
+			t.Error("bad lock keys:", lockKeys)
 		}
 	}
 
