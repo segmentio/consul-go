@@ -247,15 +247,19 @@ func newMultiCtx(keys []string, locks []ctxCancel) *multiLockCtx {
 		done:  make(chan struct{}),
 	}
 
-	for _, lock := range locks {
-		if deadline, ok := lock.ctx.Deadline(); ok {
-			if m.deadline.IsZero() || deadline.Before(m.deadline) {
-				m.deadline = deadline
+	if len(locks) == 0 {
+		m.cancelWithError(Unlocked)
+	} else {
+		for _, lock := range locks {
+			if deadline, ok := lock.ctx.Deadline(); ok {
+				if m.deadline.IsZero() || deadline.Before(m.deadline) {
+					m.deadline = deadline
+				}
 			}
 		}
+		go m.run()
 	}
 
-	go m.run()
 	return m
 }
 

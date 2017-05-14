@@ -58,6 +58,12 @@ func TestLock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	keys := []string{
+		"test-lock-1",
+		"test-lock-2",
+		"test-lock-3",
+	}
+
 	wg := sync.WaitGroup{}
 
 	for i := 0; i != 3; i++ {
@@ -67,7 +73,7 @@ func TestLock(t *testing.T) {
 			defer wg.Done()
 
 			t.Logf("[%02d] lock", i)
-			lock, unlock := Lock(ctx, "test-lock-1", "test-lock-2", "test-lock-3")
+			lock, unlock := Lock(ctx, keys[i:]...)
 			defer unlock()
 
 			if n := int(atomic.AddInt32(&concurrency, +1)); n > 1 {
