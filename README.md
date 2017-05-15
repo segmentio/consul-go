@@ -169,3 +169,56 @@ func main() {
     // ...
 }
 ```
+
+## Sessions and Locks
+
+Sessions and Locks have lifetimes, which translates nicely into the Go Context
+concept. Both the APIs presented in this PR abstract sessions and locks as
+contexts, which makes it possible to inject dependencies on Consul Sessions and
+Locks into any context-aware code.
+
+The synchronization mechanisms come in various locking algorithms (see `Lock`,
+and other similar functions).
+Lock takes a list of keys and blocks until it was able to acquire all of them,
+the algorithm is designed to prevent deadlocks (by sorting the list of keys and
+acquiring the locks sequentially).
+
+Here are a couple of examples:
+
+### Creating Sessions
+```go
+// Creates a session in Consul and returns a context associated to it.
+// The session is automatically renewed, and destroyed when cancel is called.
+//
+// If the session gets expired or removed for some reason the context is
+// asynchronously canceled.
+ctx, cancel := consul.WithSession(context.Background(), consul.Session{
+  Name: "my session",
+})
+```
+
+### Acquiring Locks
+```go
+// A session is automatically created and attached to the keys, if the session
+// expires it also releases the locks which means the returned context would
+// get asynchronously canceled. This is great to build algorithms that depend
+// on the lock being held and need to abort their execution if they detect that
+// they lost ownership of the keys.
+ctx, cancel := consul.Lock(context.Background(), "key-1", "key-A")
+```
+
+### Chaining dependencies
+```go
+// This context is canceled after 10 seconds, it's the parent context of the
+// session which means it expires the session after 10 seconds.
+deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// ...
+session, destroy := consul.WithSession(deadline, consul.Session{
+  Name: "my session",
+})
+// By passing the session as parent context we can attach the session to
+// multiple locks, if it expires, all those locks are released and their
+// contexts are canceled.
+lock1, release1 := consul.Lock(session, "key-1")
+lock2, release2 := consul.TryLockOne(session, "key-2")
+```
