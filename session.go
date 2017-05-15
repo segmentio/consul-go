@@ -183,7 +183,15 @@ func (s *sessionCtx) id() string {
 }
 
 func (s *sessionCtx) run() {
-	timeout := s.session.TTL / 2
+	// Pick the shortest of the TTL or the LockDelay to compute the session
+	// renewal interval. This ensures that any locks depending on it will
+	// be notified that the session was lost before the lock delay expires.
+	timeout := s.session.TTL
+	if s.session.LockDelay < s.session.TTL {
+		timeout = s.session.LockDelay
+	}
+	timeout /= 3
+
 	ticker := time.NewTicker(timeout)
 	defer ticker.Stop()
 
