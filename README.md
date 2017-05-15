@@ -220,5 +220,5 @@ session, destroy := consul.WithSession(deadline, consul.Session{
 // multiple locks, if it expires, all those locks are released and their
 // contexts are canceled.
 lock1, release1 := consul.Lock(session, "key-1")
-lock2, release2 := consul.TryLockOne(session, "key-2")
+lock2, release2 := consul.Lock(session, "key-2")
 ```
