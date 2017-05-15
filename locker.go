@@ -70,13 +70,13 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 	}
 }
 
-// TryLock attempts to acquire a lock on one of the given keys. The returned
+// TryLockOne attempts to acquire a lock on one of the given keys. The returned
 // context will be canceled when the lock is released (by calling the
 // cancellation function), or if the ownership was lost, in this case the
 // context's Err method returns Unlocked.
 // The method never blocks, if it fails to acquire any of the locks it returns
 // a canceled context.
-func (l *Locker) TryLock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
+func (l *Locker) TryLockOne(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
 	var err error
 	sessionCtx, sessionCancel := l.withSession(ctx, "try-lock: %v", keys)
 
@@ -144,9 +144,9 @@ func Lock(ctx context.Context, keys ...string) (context.Context, context.CancelF
 	return DefaultLocker.Lock(ctx, keys...)
 }
 
-// TryLock calls DefaultLocker.TryLock.
-func TryLock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
-	return DefaultLocker.TryLock(ctx, keys...)
+// TryLockOne calls DefaultLocker.TryLockOne.
+func TryLockOne(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
+	return DefaultLocker.TryLockOne(ctx, keys...)
 }
 
 var (

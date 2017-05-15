@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestTryLock(t *testing.T) {
+func TestTryLockOne(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -21,7 +21,7 @@ func TestTryLock(t *testing.T) {
 	}
 
 	for i := 0; i != len(keys); i++ {
-		lock, unlock := TryLock(ctx, keys...)
+		lock, unlock := TryLockOne(ctx, keys...)
 		defer unlock()
 
 		lockKeys := lock.Value(LocksKey)
@@ -41,7 +41,7 @@ func TestTryLock(t *testing.T) {
 		}
 	}
 
-	lock, unlock := TryLock(ctx, keys...)
+	lock, unlock := TryLockOne(ctx, keys...)
 	defer unlock()
 
 	select {
