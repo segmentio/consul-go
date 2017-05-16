@@ -134,13 +134,11 @@ func (store *Store) Write(ctx context.Context, key string, value io.ReadCloser, 
 
 	locks, _ := ctx.Value(LocksKey).([]string)
 	for _, lock := range locks {
-		if strings.HasPrefix(lock, store.Keyspace) {
-			if lock = store.clean(lock); lock == key {
-				query = append(query, Param{
-					Name:  "acquire",
-					Value: string(contextSession(ctx).ID),
-				})
-			}
+		if lock = store.clean(lock); lock == key {
+			query = append(query, Param{
+				Name:  "acquire",
+				Value: string(contextSession(ctx).ID),
+			})
 		}
 	}
 
@@ -210,9 +208,8 @@ func (store *Store) path(key string) string {
 }
 
 func (store *Store) clean(key string) string {
-	if key = key[len(store.Keyspace):]; len(key) != 0 && key[0] == '/' {
-		key = key[1:]
-	}
+	key = strings.TrimPrefix(key, store.Keyspace)
+	key = strings.TrimPrefix(key, "/")
 	return key
 }
 
