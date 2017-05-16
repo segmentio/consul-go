@@ -99,8 +99,8 @@ func (c *Client) Put(ctx context.Context, path string, query Query, send interfa
 // Delete sends a DELETE request to the consul agent.
 //
 // See (*Client).Do for the full documentation.
-func (c *Client) Delete(ctx context.Context, path string, query Query) error {
-	return c.Do(ctx, "DELETE", path, query, nil, nil)
+func (c *Client) Delete(ctx context.Context, path string, query Query, recv interface{}) error {
+	return c.Do(ctx, "DELETE", path, query, nil, recv)
 }
 
 // Do sends a request to the consul agent. The method, path, and query arguments
@@ -109,6 +109,37 @@ func (c *Client) Delete(ctx context.Context, path string, query Query) error {
 // has an empty body. The recv argument should be a pointer to a type which
 // matches the format of the response, or nil if no response is expected.
 func (c *Client) Do(ctx context.Context, method string, path string, query Query, send interface{}, recv interface{}) (err error) {
+	var req io.ReadCloser
+	var res io.ReadCloser
+
+	switch v := send.(type) {
+	case nil:
+	case io.ReadCloser:
+		req = v
+	case []byte:
+		req = ioutil.NopCloser(bytes.NewReader(v))
+	default:
+		var b []byte
+		if b, err = json.Marshal(v); err != nil {
+			return
+		}
+		req = ioutil.NopCloser(bytes.NewReader(b))
+	}
+
+	if _, res, err = c.do(ctx, method, path, query, req); err != nil {
+		return
+	}
+	defer res.Close()
+
+	if recv != nil {
+		err = json.NewDecoder(res).Decode(recv)
+	}
+
+	return
+}
+
+func (c *Client) do(ctx context.Context, method string, path string, query Query, send io.ReadCloser) (header http.Header, recv io.ReadCloser, err error) {
+	var res *http.Response
 	var scheme = "http"
 	var address = c.Address
 	var transport = c.Transport
@@ -132,25 +163,14 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 		query = append(query, Param{"dc", dc})
 	}
 
-	var body []byte
-	var req *http.Request
-	var res *http.Response
-	var url = &url.URL{
+	url := &url.URL{
 		Scheme:   scheme,
 		Host:     address,
 		Path:     path,
 		RawQuery: query.String(),
 	}
 
-	if send != nil {
-		if data, ok := send.([]byte); ok {
-			body = data
-		} else if body, err = json.Marshal(send); err != nil {
-			return
-		}
-	}
-
-	req = &http.Request{
+	req := &http.Request{
 		Method:     method,
 		URL:        url,
 		Proto:      "HTTP/1.1",
@@ -162,23 +182,20 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 			"Host":         {address},
 			"User-Agent":   {userAgent},
 		},
-		Body:          ioutil.NopCloser(bytes.NewReader(body)),
-		ContentLength: int64(len(body)),
+		Body: send,
 	}
-	if ctx != nil {
-		req = req.WithContext(ctx)
-	}
-	if res, err = transport.RoundTrip(req); err != nil {
+
+	if res, err = transport.RoundTrip(req.WithContext(ctx)); err != nil {
 		return
 	}
-	defer res.Body.Close()
-	defer io.Copy(ioutil.Discard, req.Body)
 
-	if res.StatusCode != http.StatusOK {
-		err = fmt.Errorf("%s %s: %s", method, url, res.Status)
-	} else if recv != nil {
-		err = json.NewDecoder(res.Body).Decode(recv)
+	if res.StatusCode == http.StatusOK {
+		header, recv = res.Header, res.Body
+		return
 	}
+
+	res.Body.Close()
+	err = fmt.Errorf("%s %s: %s", method, url, res.Status)
 	return
 }
 

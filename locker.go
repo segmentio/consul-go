@@ -49,8 +49,16 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 		}
 
 		if len(locks) == len(keys) {
-			multi := newMultiCtx(sortedKeys, locks)
-			return multi, func() { multi.cancel(); sessionCancel() }
+			switch len(locks) {
+			case 0:
+				return errorContext(ctx, Unlocked)
+			case 1:
+				lock := locks[0]
+				return lock.ctx, func() { lock.cancel(); sessionCancel() }
+			default:
+				multi := newMultiCtx(sortedKeys, locks)
+				return multi, func() { multi.cancel(); sessionCancel() }
+			}
 		}
 
 		for _, lock := range locks {
@@ -247,19 +255,15 @@ func newMultiCtx(keys []string, locks []ctxCancel) *multiLockCtx {
 		done:  make(chan struct{}),
 	}
 
-	if len(locks) == 0 {
-		m.cancelWithError(Unlocked)
-	} else {
-		for _, lock := range locks {
-			if deadline, ok := lock.ctx.Deadline(); ok {
-				if m.deadline.IsZero() || deadline.Before(m.deadline) {
-					m.deadline = deadline
-				}
+	for _, lock := range locks {
+		if deadline, ok := lock.ctx.Deadline(); ok {
+			if m.deadline.IsZero() || deadline.Before(m.deadline) {
+				m.deadline = deadline
 			}
 		}
-		go m.run()
 	}
 
+	go m.run()
 	return m
 }
 
