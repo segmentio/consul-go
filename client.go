@@ -112,18 +112,12 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 	var req io.ReadCloser
 	var res io.ReadCloser
 
-	switch v := send.(type) {
-	case nil:
-	case io.ReadCloser:
-		req = v
-	case []byte:
-		req = ioutil.NopCloser(bytes.NewReader(v))
-	default:
-		var b []byte
-		if b, err = json.Marshal(v); err != nil {
+	if send != nil {
+		b := &bytes.Buffer{}
+		if err = json.NewEncoder(b).Encode(send); err != nil {
 			return
 		}
-		req = ioutil.NopCloser(bytes.NewReader(b))
+		req = ioutil.NopCloser(b)
 	}
 
 	if _, res, err = c.do(ctx, method, path, query, req); err != nil {
