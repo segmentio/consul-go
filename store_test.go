@@ -182,7 +182,7 @@ func testCompareAndSwapSuccess(t *testing.T, ctx context.Context, store *Store) 
 }
 
 func testWriteLockedKeyFailure(t *testing.T, ctx context.Context, store *Store) {
-	_, unlock := (&Locker{Client: store.Client}).Lock(ctx, store.Keyspace+"/A")
+	_, unlock := (&Locker{Client: store.Client, Keyspace: store.Keyspace}).Lock(ctx, "A")
 	defer unlock()
 
 	session, expire := WithSession(ctx, Session{})
@@ -200,7 +200,7 @@ func testWriteLockedKeyFailure(t *testing.T, ctx context.Context, store *Store) 
 }
 
 func testWriteLockedKeySuccess(t *testing.T, ctx context.Context, store *Store) {
-	lock, unlock := (&Locker{Client: store.Client}).Lock(ctx, "A")
+	lock, unlock := (&Locker{Client: store.Client, Keyspace: store.Keyspace}).Lock(ctx, "A")
 	defer unlock()
 
 	// Passing the lock should allow the key to be written.

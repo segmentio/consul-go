@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"sort"
 	"sync"
@@ -18,6 +19,9 @@ type Locker struct {
 	// client is used instead.
 	Client *Client
 
+	// A key prefix to apply to all operations made on this locker.
+	Keyspace string
+
 	// LockDelay is the amount of time that a lock will stay held if it hasn't
 	// been released and the session that was attached to it expired.
 	LockDelay time.Duration
@@ -28,19 +32,22 @@ type Locker struct {
 // when the locks are released (by calling the cancellation function), or if the
 // ownership was lost, in this case the contexts' Err method returns Unlocked.
 func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
-	retryInterval := 1 * time.Second
-	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", keys)
+	if len(keys) == 0 {
+		return errorContext(ctx, Unlocked)
+	}
 
+	retryInterval := 1 * time.Second
 	deadline, ok := ctx.Deadline()
 	if ok {
 		retryInterval = deadline.Sub(time.Now()) / 10
 	}
 
-	locks := make([]ctxCancel, 0, len(keys))
-	sortedKeys := sortedKeys(keys)
+	keys = l.prefixKeys(sortedKeys(keys))
+	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", keys)
 
+	locks := make([]ctxCancel, 0, len(keys))
 	for {
-		for _, key := range sortedKeys {
+		for _, key := range keys {
 			lockCtx, lockCancel, _ := l.tryLock(sessionCtx, key)
 			if lockCtx == nil {
 				break
@@ -49,14 +56,11 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 		}
 
 		if len(locks) == len(keys) {
-			switch len(locks) {
-			case 0:
-				return errorContext(ctx, Unlocked)
-			case 1:
+			if len(keys) == 1 {
 				lock := locks[0]
 				return lock.ctx, func() { lock.cancel(); sessionCancel() }
-			default:
-				multi := newMultiCtx(sortedKeys, locks)
+			} else {
+				multi := newMultiCtx(keys, locks)
 				return multi, func() { multi.cancel(); sessionCancel() }
 			}
 		}
@@ -85,9 +89,14 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 // The method never blocks, if it fails to acquire any of the locks it returns
 // a canceled context.
 func (l *Locker) TryLockOne(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
-	var err error
+	if len(keys) == 0 {
+		return errorContext(ctx, Unlocked)
+	}
+
+	keys = l.prefixKeys(copyKeys(keys))
 	sessionCtx, sessionCancel := l.withSession(ctx, "try-lock: %v", keys)
 
+	var err error
 	for _, key := range keys {
 		var lockCtx context.Context
 		var lockCancel context.CancelFunc
@@ -145,6 +154,15 @@ func (l *Locker) lockDelay() time.Duration {
 		return delay
 	}
 	return 15 * time.Second
+}
+
+func (l *Locker) prefixKeys(keys []string) []string {
+	if prefix := l.Keyspace; len(prefix) != 0 {
+		for i := range keys {
+			keys[i] = path.Join(prefix, keys[i])
+		}
+	}
+	return keys
 }
 
 // Lock calls DefaultLocker.Lock.
