@@ -92,3 +92,58 @@ func TestLock(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestLockReleased(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	lock, unlock := (&Locker{LockDelay: 500 * time.Millisecond}).Lock(ctx, "lose-lock")
+	defer unlock()
+
+	session := lock.Value(SessionKey).(Session)
+
+	// hack: force-release the key
+	if err := DefaultClient.releaseLock(ctx, "lose-lock", string(session.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-lock.Done():
+	case <-time.After(1 * time.Second):
+		t.Error("losing the lock wasn't detected after 1 second")
+		return
+	}
+
+	if err := lock.Err(); err != Unlocked {
+		t.Error("bad error returned by the lock:", err)
+	}
+}
+
+func TestLockLoseSession(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session, expire := WithSession(ctx, Session{})
+	defer expire()
+
+	lock, unlock := (&Locker{LockDelay: 500 * time.Millisecond}).Lock(session, "lose-session")
+	defer unlock()
+
+	// force-expire the session, should release the lock
+	expire()
+
+	select {
+	case <-lock.Done():
+	case <-time.After(1 * time.Second):
+		t.Error("losing the lock wasn't detected after 1 second")
+		return
+	}
+
+	if err := lock.Err(); err != Unlocked {
+		t.Error("bad error returned by the lock:", err)
+	}
+}

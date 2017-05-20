@@ -196,7 +196,7 @@ func newLockCtx(ctx context.Context, key string, client *Client) *lockCtx {
 		key:    key,
 		done:   make(chan struct{}),
 	}
-	go l.run()
+	go l.run(ctx.Value(SessionKey).(Session))
 	return l
 }
 
@@ -245,11 +245,34 @@ func (l *lockCtx) cancelWithError(err error) {
 	})
 }
 
-func (l *lockCtx) run() {
-	select {
-	case <-l.done:
-	case <-l.ctx.Done():
-		l.cancelWithError(Unlocked)
+func (l *lockCtx) run(session Session) {
+	timeout := session.LockDelay / 3
+	ticker := time.NewTicker(timeout)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+		case <-l.done:
+			return
+		case <-l.ctx.Done():
+			l.cancelWithError(Unlocked)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		sid, err := l.client.fetchLock(ctx, l.key)
+		cancel()
+
+		if err != nil {
+			l.cancelWithError(err)
+			return
+		}
+
+		if SessionID(sid) != session.ID {
+			l.cancelWithError(Unlocked)
+			return
+		}
 	}
 }
 
@@ -354,6 +377,26 @@ func (c *Client) acquireLock(ctx context.Context, key string, sid string) (locke
 
 func (c *Client) releaseLock(ctx context.Context, key string, sid string) (err error) {
 	err = c.Put(ctx, "/v1/kv/"+key, Query{{"release", sid}}, nil, nil)
+	return
+}
+
+func (c *Client) fetchLock(ctx context.Context, key string) (sid string, err error) {
+	var entries []struct {
+		Key       string
+		SessionID string
+	}
+
+	if err = c.Get(ctx, "/v1/kv/"+key, nil, &entries); err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.Key == key {
+			sid = entry.SessionID
+			break
+		}
+	}
+
 	return
 }
 
