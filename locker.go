@@ -260,7 +260,7 @@ func (l *lockCtx) run(session Session) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(l, timeout)
 		sid, err := l.client.fetchLock(ctx, l.key)
 		cancel()
 
