@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -113,11 +112,11 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 	var res io.ReadCloser
 
 	if send != nil {
-		b := &bytes.Buffer{}
+		b := &buffer{}
 		if err = json.NewEncoder(b).Encode(send); err != nil {
 			return
 		}
-		req = ioutil.NopCloser(b)
+		req = b
 	}
 
 	if _, res, err = c.do(ctx, method, path, query, req); err != nil {
@@ -153,6 +152,18 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 		transport = DefaultTransport
 	}
 
+	var contentLength int64
+	switch v := send.(type) {
+	case nil:
+		contentLength = 0
+	case interface {
+		Len() int
+	}:
+		contentLength = int64(v.Len())
+	default:
+		contentLength = -1
+	}
+
 	if dc := c.Datacenter; len(dc) != 0 {
 		query = append(query, Param{"dc", dc})
 	}
@@ -176,7 +187,8 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 			"Host":         {address},
 			"User-Agent":   {userAgent},
 		},
-		Body: send,
+		Body:          send,
+		ContentLength: contentLength,
 	}
 
 	if res, err = transport.RoundTrip(req.WithContext(ctx)); err != nil {
@@ -230,3 +242,9 @@ func (q Query) Values() url.Values {
 
 	return v
 }
+
+type buffer struct {
+	bytes.Buffer
+}
+
+func (*buffer) Close() error { return nil }

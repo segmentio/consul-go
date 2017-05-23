@@ -45,6 +45,10 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 	keys = l.prefixKeys(sortedKeys(keys))
 	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", keys)
 
+	if sessionCtx.Err() != nil {
+		return sessionCtx, sessionCancel
+	}
+
 	locks := make([]ctxCancel, 0, len(keys))
 	for {
 		for _, key := range keys {
@@ -95,6 +99,10 @@ func (l *Locker) TryLockOne(ctx context.Context, keys ...string) (context.Contex
 
 	keys = l.prefixKeys(copyKeys(keys))
 	sessionCtx, sessionCancel := l.withSession(ctx, "try-lock: %v", keys)
+
+	if sessionCtx.Err() != nil {
+		return sessionCtx, sessionCancel
+	}
 
 	var err error
 	for _, key := range keys {

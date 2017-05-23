@@ -99,8 +99,13 @@ func TestLockReleased(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	lock, unlock := (&Locker{LockDelay: 500 * time.Millisecond}).Lock(ctx, "lose-lock")
+	lock, unlock := (&Locker{LockDelay: 10 * time.Second}).Lock(ctx, "lose-lock")
 	defer unlock()
+
+	if err := lock.Err(); err != nil {
+		t.Error(err)
+		return
+	}
 
 	session := lock.Value(SessionKey).(Session)
 
@@ -111,7 +116,7 @@ func TestLockReleased(t *testing.T) {
 
 	select {
 	case <-lock.Done():
-	case <-time.After(1 * time.Second):
+	case <-time.After(11 * time.Second):
 		t.Error("losing the lock wasn't detected after 1 second")
 		return
 	}
