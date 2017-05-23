@@ -173,9 +173,8 @@ func main() {
 ## Sessions and Locks
 
 Sessions and Locks have lifetimes, which translates nicely into the Go Context
-concept. Both the APIs presented in this PR abstract sessions and locks as
-contexts, which makes it possible to inject dependencies on Consul Sessions and
-Locks into any context-aware code.
+concept. The APIs abstract sessions and locks as contexts, which makes it possible
+to inject dependencies on Consul Sessions and Locks into any context-aware code.
 
 The synchronization mechanisms come in various locking algorithms (see `Lock`,
 and other similar functions).
