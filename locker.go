@@ -390,8 +390,8 @@ func (c *Client) releaseLock(ctx context.Context, key string, sid string) (err e
 
 func (c *Client) fetchLock(ctx context.Context, key string) (sid string, err error) {
 	var entries []struct {
-		Key       string
-		SessionID string
+		Key     string
+		Session string
 	}
 
 	if err = c.Get(ctx, "/v1/kv/"+key, nil, &entries); err != nil {
@@ -400,7 +400,7 @@ func (c *Client) fetchLock(ctx context.Context, key string) (sid string, err err
 
 	for _, entry := range entries {
 		if entry.Key == key {
-			sid = entry.SessionID
+			sid = entry.Session
 			break
 		}
 	}
