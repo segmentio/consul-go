@@ -222,7 +222,7 @@ func publicOrLoopbackIP() (net.IP, error) {
 
 	for _, iface := range ifaces {
 		if (iface.Flags&net.FlagUp) != 0 && (iface.Flags&(net.FlagLoopback|net.FlagPointToPoint)) == 0 {
-			if a, e := findIPAddr(iface); e != nil {
+			if a, e := findIP(iface); e != nil {
 				err = e
 			} else if a != nil {
 				return a, nil
@@ -232,7 +232,7 @@ func publicOrLoopbackIP() (net.IP, error) {
 
 	for _, iface := range ifaces {
 		if (iface.Flags & net.FlagLoopback) != 0 {
-			if a, e := findIPAddr(iface); e != nil {
+			if a, e := findIP(iface); e != nil {
 				err = e
 			} else if a != nil {
 				return a, nil
@@ -247,7 +247,7 @@ func publicOrLoopbackIP() (net.IP, error) {
 	return nil, err
 }
 
-func findIPAddr(iface net.Interface) (net.IP, error) {
+func findIP(iface net.Interface) (net.IP, error) {
 	addrs, err := iface.Addrs()
 
 	if err != nil {
