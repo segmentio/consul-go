@@ -268,8 +268,8 @@ func findIPAddr(iface net.Interface) (net.IP, error) {
 	}
 
 	// Prefer IPv4 because consul has issues with making TCP health checks to
-	// IPv6 addresses. If we haven't found an v4 address it's very likely that
-	// the health checks won't pass with an v6 address but at least the code is
+	// IPv6 addresses. If we haven't found a v4 address it's very likely that
+	// the health checks won't pass with a v6 address but at least the code is
 	// future proof is the program gets resolved.
 	if ipv4 != nil {
 		return ipv4, nil
