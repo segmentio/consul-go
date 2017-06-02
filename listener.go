@@ -2,11 +2,14 @@ package consul
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -77,7 +80,6 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 		Name:              l.ServiceName,
 		Tags:              l.ServiceTags,
 		EnableTagOverride: l.ServiceEnableTagOverride,
-		Address:           lstn.Addr().String(),
 	}
 
 	if service.Name == "" {
@@ -90,11 +92,36 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 
 	if l.ServiceAddress != nil {
 		service.Address = l.ServiceAddress.String()
+		addr, port, _ := net.SplitHostPort(service.Address)
+		service.Address = addr
+		service.Port, err = strconv.Atoi(port)
+
+		if err != nil {
+			err = fmt.Errorf("bad port number in network address %s://%s", network, address)
+		}
+
+	} else {
+		switch addr := lstn.Addr().(type) {
+		case *net.TCPAddr:
+			zeroIPv4 := net.ParseIP("0.0.0.0")
+			zeroIPv6 := net.ParseIP("::")
+
+			if addr.IP.Equal(zeroIPv4) || addr.IP.Equal(zeroIPv6) {
+				addr.IP, err = publicOrLoopbackIP()
+				addr.Zone = ""
+			}
+
+			service.Address = addr.IP.String()
+			service.Port = addr.Port
+		default:
+			service.Address = addr.String()
+		}
 	}
 
-	addr, port, _ := net.SplitHostPort(service.Address)
-	service.Address = addr
-	service.Port, _ = strconv.Atoi(port)
+	if err != nil {
+		lstn.Close()
+		return nil, err
+	}
 
 	service.Checks = []checkConfig{{
 		Notes:    "Ensure consul can establish TCP connections to the service",
@@ -182,4 +209,71 @@ func Listen(network string, address string) (net.Listener, error) {
 // The context may be used to asynchronously cancel the consul registration.
 func ListenContext(ctx context.Context, network string, address string) (net.Listener, error) {
 	return (&Listener{}).ListenContext(ctx, network, address)
+}
+
+func publicOrLoopbackIP() (net.IP, error) {
+	var ifaces []net.Interface
+	var err error
+
+	if ifaces, err = net.Interfaces(); err != nil {
+		return nil, err
+	}
+	sort.Slice(ifaces, func(i int, j int) bool { return ifaces[i].Index < ifaces[i].Index })
+
+	for _, iface := range ifaces {
+		if (iface.Flags&net.FlagUp) != 0 && (iface.Flags&(net.FlagLoopback|net.FlagPointToPoint)) == 0 {
+			if a, e := findIP(iface); e != nil {
+				err = e
+			} else if a != nil {
+				return a, nil
+			}
+		}
+	}
+
+	for _, iface := range ifaces {
+		if (iface.Flags & net.FlagLoopback) != 0 {
+			if a, e := findIP(iface); e != nil {
+				err = e
+			} else if a != nil {
+				return a, nil
+			}
+		}
+	}
+
+	if err == nil {
+		err = errors.New("no network interfaces were found")
+	}
+
+	return nil, err
+}
+
+func findIP(iface net.Interface) (net.IP, error) {
+	addrs, err := iface.Addrs()
+
+	if err != nil {
+		return nil, err
+	}
+
+	var ipv4 net.IP
+	var ipv6 net.IP
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok {
+			if ipnet.IP.To4() != nil {
+				ipv4 = ipnet.IP
+			} else {
+				ipv6 = ipnet.IP
+			}
+		}
+	}
+
+	// Prefer IPv4 because consul has issues with making TCP health checks to
+	// IPv6 addresses. If we haven't found a v4 address it's very likely that
+	// the health checks won't pass with a v6 address but at least the code is
+	// future proof is the program gets resolved.
+	if ipv4 != nil {
+		return ipv4, nil
+	}
+
+	return ipv6, nil
 }
