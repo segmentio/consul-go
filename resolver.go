@@ -60,6 +60,27 @@ type Resolver struct {
 	Sort func([]Endpoint)
 }
 
+// LookupHost resolves a service name to a list of network addresses.
+//
+// The method name is a bit misleading because it uses the term Host but accepts
+// a service name as argument, this is done to match the signature of the
+// net.(*Resolver).LookupHost method so the types can satisfy the same interface.
+func (rslv *Resolver) LookupHost(ctx context.Context, name string) ([]string, error) {
+	endpoints, err := rslv.LookupService(ctx, name)
+
+	if err != nil {
+		return nil, err
+	}
+
+	addrs := make([]string, len(endpoints))
+
+	for i, endpoint := range endpoints {
+		addrs[i] = endpoint.Addr.String()
+	}
+
+	return addrs, nil
+}
+
 // LookupService resolves a service name to a list of endpoints using the
 // resolver's configuration to narrow and sort the result set.
 func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoint, error) {
