@@ -84,11 +84,11 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 		EnableTagOverride: l.ServiceEnableTagOverride,
 	}
 
-	if service.Name == "" {
+	if len(service.Name) == 0 {
 		service.Name = filepath.Base(os.Args[0])
 	}
 
-	if service.ID == "" {
+	if len(service.ID) == 0 {
 		service.ID = service.Name
 	} else {
 		service.ID = service.Name + ":" + service.ID
@@ -134,7 +134,7 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 		TCP:      net.JoinHostPort(service.Address, strconv.Itoa(service.Port)),
 	}}
 
-	if l.CheckHTTP != "" {
+	if len(l.CheckHTTP) != 0 {
 		service.Checks = append(service.Checks, checkConfig{
 			Notes:    "Ensure consul can submit HTTP requests to the service",
 			Interval: "10s",
