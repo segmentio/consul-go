@@ -5,6 +5,7 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -87,14 +88,33 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 	var list []Endpoint
 	var err error
 
+	serviceName, serviceID := splitNameID(name)
+
 	if cache := rslv.Cache; cache != nil {
-		list, err = cache.LookupService(ctx, name, rslv.lookupService)
+		list, err = cache.LookupService(ctx, serviceName, rslv.lookupService)
 	} else {
-		list, err = rslv.lookupService(ctx, name)
+		list, err = rslv.lookupService(ctx, serviceName)
 	}
 
-	if err == nil && rslv.Sort != nil {
+	if err != nil {
+		return nil, err
+	}
+
+	if rslv.Sort != nil {
 		rslv.Sort(list)
+	}
+
+	if len(serviceID) != 0 {
+		i := 0
+
+		for _, e := range list {
+			if _, id := splitNameID(e.ID); id == serviceID {
+				list[i] = e
+				i++
+			}
+		}
+
+		list = list[:i]
 	}
 
 	return list, err
@@ -111,6 +131,7 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 			Meta map[string]string
 		}
 		Service struct {
+			ID      string
 			Address string
 			Port    int
 			Tags    []string
@@ -145,6 +166,7 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 
 	for i, res := range results {
 		list[i] = Endpoint{
+			ID: res.Service.ID,
 			Addr: &serviceAddr{
 				addr: res.Service.Address,
 				port: res.Service.Port,
@@ -392,4 +414,13 @@ func (cmap *resolverCacheMap) list() []*resolverCacheEntry {
 
 	cmap.mutex.RUnlock()
 	return entries
+}
+
+func splitNameID(s string) (name string, id string) {
+	if i := strings.IndexByte(s, ':'); i < 0 {
+		name = s
+	} else {
+		name, id = s[:i], s[i+1:]
+	}
+	return
 }

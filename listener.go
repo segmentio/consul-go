@@ -25,6 +25,8 @@ type Listener struct {
 	// A unique identifier for the service registered to consul. This only needs
 	// to be unique within the agent that the service registers to, and may be
 	// omitted. In that case, ServiceName is used instead.
+	// This value is appended to ServiceName using ':' as separator to create a
+	// unique ID for the listener within a set of services with the same name.
 	ServiceID string
 
 	// The logical name of the service registered to consul. If none is set, the
@@ -88,6 +90,8 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 
 	if service.ID == "" {
 		service.ID = service.Name
+	} else {
+		service.ID = service.Name + ":" + service.ID
 	}
 
 	if l.ServiceAddress != nil {

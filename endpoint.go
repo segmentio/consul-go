@@ -11,6 +11,9 @@ import (
 // An Endpoint represents the address at which a service is available, coupled
 // with the metadata associated with the service registration.
 type Endpoint struct {
+	// The ID under which the service was registered.
+	ID string
+
 	// The node name that the endpoint belongs to.
 	Node string
 

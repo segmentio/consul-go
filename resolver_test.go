@@ -16,6 +16,12 @@ func TestResolver(t *testing.T) {
 	t.Run("LookupService", func(t *testing.T) {
 		t.Run("uncached", func(t *testing.T) { testLookupService(t, nil) })
 		t.Run("cached", func(t *testing.T) { testLookupService(t, &ResolverCache{}) })
+		t.Run("by-name", func(t *testing.T) { testLookupServiceByName(t, nil) })
+		t.Run("by-ID", func(t *testing.T) { testLookupServiceByID(t, nil) })
+	})
+	t.Run("LookupHost", func(t *testing.T) {
+		t.Run("uncached", func(t *testing.T) { testLookupHost(t, nil) })
+		t.Run("cached", func(t *testing.T) { testLookupService(t, &ResolverCache{}) })
 	})
 }
 
@@ -77,6 +83,70 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 		{Addr: &serviceAddr{"192.168.0.3", 4242}},
 	}) {
 		t.Error("bad addresses returned:", addrs)
+	}
+}
+
+func testLookupServiceByName(t *testing.T, cache *ResolverCache) {
+	lstn := &Listener{
+		ServiceName: "test-consul-go-by-name",
+		ServiceID:   "1234",
+	}
+
+	l, err := lstn.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	rslv := Resolver{
+		OnlyPassing: true,
+		Cache:       cache,
+	}
+
+	addrs, err := rslv.LookupService(context.Background(), "test-consul-go-by-name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(addrs) != 1 {
+		t.Fatal("bad address count:", addrs)
+	}
+	if addrs[0].ID != "test-consul-go-by-name:1234" {
+		t.Error("bad ID:", addrs[0].ID)
+	}
+	if addrs[0].Addr.String() != l.Addr().String() {
+		t.Error("bad address:", addrs[0].Addr)
+	}
+}
+
+func testLookupServiceByID(t *testing.T, cache *ResolverCache) {
+	lstn := &Listener{
+		ServiceName: "test-consul-go-by-ID",
+		ServiceID:   "1234",
+	}
+
+	l, err := lstn.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	rslv := Resolver{
+		OnlyPassing: true,
+		Cache:       cache,
+	}
+
+	addrs, err := rslv.LookupService(context.Background(), "test-consul-go-by-ID:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(addrs) != 1 {
+		t.Fatal("bad address count:", addrs)
+	}
+	if addrs[0].ID != "test-consul-go-by-ID:1234" {
+		t.Error("bad ID:", addrs[0].ID)
+	}
+	if addrs[0].Addr.String() != l.Addr().String() {
+		t.Error("bad address:", addrs[0].Addr)
 	}
 }
 
