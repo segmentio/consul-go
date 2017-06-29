@@ -107,7 +107,7 @@ func init() {
 	// because the rand.ExpFloat64 function uses a global RNG which synchronizes
 	// random number generations on a mutex which easily becomes a heavy point
 	// of contention in applications that use the consul resolver frequently.
-	r := rand.New(rand.NewSource())
+	r := rand.New(rand.NewSource(time.Now().Unix()))
 
 	for i := range randExpFloat64 {
 		randExpFloat64[i] = r.ExpFloat64()
@@ -124,5 +124,5 @@ const (
 
 var (
 	randOffset     uint64
-	randExpFloat64 [randValue]float64
+	randExpFloat64 [randValues]float64
 )
