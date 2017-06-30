@@ -69,6 +69,8 @@ type Resolver struct {
 	// of endpoints, otherwise consecutive calls would likely return the list in
 	// the same order, and picking the first item would result in routing all
 	// traffic to a single instance of the service.
+	//
+	// DEPRECATED: use Balancer instead.
 	Sort func([]Endpoint)
 }
 

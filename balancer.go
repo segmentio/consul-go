@@ -256,3 +256,32 @@ func PreferEC2AvailabilityZone() (Balancer, error) {
 
 	return PreferTags{string(b)}, nil
 }
+
+// Shuffler is a Balancer implementation which returns a randomly shuffled list
+// of endpoints.
+type Shuffler struct{}
+
+// Balance satsifies the Balancer interface.
+func (*Shuffler) Balance(name string, endpoints []Endpoint) []Endpoint {
+	Shuffle(endpoints)
+	return endpoints
+}
+
+// WeightedShuffler is a Balancer implementation which shuffles the list of
+// endpoints using a different weight for each endpoint.
+type WeightedShuffler struct {
+	// WeightOf returns the weight of an endpoint.
+	WeightOf func(Endpoint) float64
+}
+
+// Balance satisfies the Balancer interface.
+func (ws *WeightedShuffler) Balance(name string, endpoints []Endpoint) []Endpoint {
+	weightOf := ws.WeightOf
+
+	if weightOf == nil {
+		weightOf = func(_ Endpoint) float64 { return 1.0 }
+	}
+
+	WeightedShuffle(endpoints, weightOf)
+	return endpoints
+}

@@ -26,6 +26,20 @@ var balancers = []struct {
 			&RoundRobin{},
 		),
 	},
+
+	{
+		name: "Shuffler",
+		impl: &Shuffler{},
+	},
+
+	{
+		name: "WeightedShufflerOnRTT",
+		impl: &WeightedShuffler{
+			WeightOf: func(e Endpoint) float64 {
+				return float64(e.RTT)
+			},
+		},
+	},
 }
 
 func TestBalancer(t *testing.T) {
