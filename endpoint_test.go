@@ -52,32 +52,33 @@ func TestShuffleDistribution(t *testing.T) {
 }
 
 func testShuffleDistribution(t *testing.T, shuffle func([]Endpoint)) {
-	const N = 1000000
+	const M = 300
+	const N = 2000
 
 	type counter struct {
 		index int
 		value int
 	}
 
-	base := []Endpoint{
-		{ID: "0", RTT: 250 * time.Microsecond},
-		{ID: "1", RTT: 500 * time.Microsecond},
-		{ID: "2", RTT: 1 * time.Millisecond},
-		{ID: "3", RTT: 2 * time.Millisecond},
-		{ID: "4", RTT: 4 * time.Millisecond},
-		{ID: "5", RTT: 8 * time.Millisecond},
-		{ID: "6", RTT: 16 * time.Millisecond},
-		{ID: "7", RTT: 32 * time.Millisecond},
-		{ID: "8", RTT: 64 * time.Millisecond},
-		{ID: "9", RTT: 128 * time.Millisecond},
+	base := make([]Endpoint, M)
+	rtt := 200 * time.Microsecond
+
+	for i := 0; i != M; i++ {
+		base[i].ID = strconv.Itoa(i)
+		base[i].RTT = rtt
+		rtt += 10 * time.Microsecond
+
+		if i > (M / 2) {
+			rtt += time.Millisecond
+		}
 	}
 
-	counters := make([]counter, len(base))
+	counters := make([]counter, M)
 	for i := range counters {
 		counters[i].index = i
 	}
 
-	endpoints := make([]Endpoint, len(base))
+	endpoints := make([]Endpoint, M)
 	for i := 0; i != N; i++ {
 		copy(endpoints, base)
 		shuffle(endpoints)
@@ -96,6 +97,6 @@ func testShuffleDistribution(t *testing.T, shuffle func([]Endpoint)) {
 
 	for _, c := range counters {
 		endpoint := base[c.index]
-		t.Logf("RTT = % 5s: % 3d\t(%g%%)", endpoint.RTT, c.value, float64(c.value)*100.0/N)
+		t.Logf("ID = %  s, RTT = % 5s: % 3d\t(%g%%)", endpoint.ID, endpoint.RTT, c.value, float64(c.value)*100.0/N)
 	}
 }

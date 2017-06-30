@@ -83,7 +83,7 @@ func WeightedShuffleOnRTT(list []Endpoint) {
 // of the list.
 func WeightedShuffle(list []Endpoint, weightOf func(Endpoint) float64) {
 	for i := range list {
-		list[i].expWeight = weightOf(list[i]) * expFloat64()
+		list[i].expWeight = weightOf(list[i]) * rand.ExpFloat64()
 	}
 	sort.Sort(byExpWeight(list))
 }
