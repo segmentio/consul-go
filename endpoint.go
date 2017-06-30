@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -82,7 +83,7 @@ func WeightedShuffleOnRTT(list []Endpoint) {
 // of the list.
 func WeightedShuffle(list []Endpoint, weightOf func(Endpoint) float64) {
 	for i := range list {
-		list[i].expWeight = weightOf(list[i]) * rand.ExpFloat64()
+		list[i].expWeight = weightOf(list[i]) * expFloat64()
 	}
 	sort.Sort(byExpWeight(list))
 }
@@ -100,3 +101,28 @@ func (list byExpWeight) Less(i int, j int) bool {
 func (list byExpWeight) Swap(i int, j int) {
 	list[i], list[j] = list[j], list[i]
 }
+
+func init() {
+	// We cache a bunch of pregenerated exp float64 to use in WeightedShuffle
+	// because the rand.ExpFloat64 function uses a global RNG which synchronizes
+	// random number generations on a mutex which easily becomes a heavy point
+	// of contention in applications that use the consul resolver frequently.
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+
+	for i := range randExpFloat64 {
+		randExpFloat64[i] = r.ExpFloat64()
+	}
+}
+
+func expFloat64() float64 {
+	return randExpFloat64[atomic.AddUint64(&randOffset, 1)%randValues]
+}
+
+const (
+	randValues = 255
+)
+
+var (
+	randOffset     uint64
+	randExpFloat64 [randValues]float64
+)
