@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -43,10 +44,14 @@ type Endpoint struct {
 
 // Shuffle is a sorting function that randomly rearranges the list of endpoints.
 func Shuffle(list []Endpoint) {
+	rng := randers.Get().(*rand.Rand)
+
 	for i := range list {
-		j := rand.Intn(i + 1)
+		j := rng.Intn(i + 1)
 		list[i], list[j] = list[j], list[i]
 	}
+
+	randers.Put(rng)
 }
 
 // WeightedShuffleOnRTT is a sorting function that randomly rearranges the list
@@ -81,10 +86,14 @@ func WeightedShuffleOnRTT(list []Endpoint) {
 // endpoints, using the weightOf function to obtain the weight of each endpoint
 // of the list.
 func WeightedShuffle(list []Endpoint, weightOf func(Endpoint) float64) {
+	rng := randers.Get().(*rand.Rand)
+
 	for i := range list {
-		list[i].expWeight = weightOf(list[i]) * rand.ExpFloat64()
+		list[i].expWeight = weightOf(list[i]) * rng.ExpFloat64()
 	}
+
 	sort.Sort(byExpWeight(list))
+	randers.Put(rng)
 }
 
 type byExpWeight []Endpoint
@@ -99,4 +108,10 @@ func (list byExpWeight) Less(i int, j int) bool {
 
 func (list byExpWeight) Swap(i int, j int) {
 	list[i], list[j] = list[j], list[i]
+}
+
+var randers = sync.Pool{
+	New: func() interface{} {
+		return rand.New(rand.NewSource(time.Now().UnixNano()))
+	},
 }

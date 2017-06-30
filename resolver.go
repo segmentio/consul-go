@@ -54,6 +54,13 @@ type Resolver struct {
 	// agnet to the endpoints. If nil, DefaultTomography is used instead.
 	Tomography *Tomography
 
+	// The balancer is used to reorder the list of endpoints returned by the
+	// resolver when looking up services.
+	//
+	// This field takes precedence over Sort, to use a simple sorting function,
+	// set the value to nil.
+	Balancer Balancer
+
 	// Sort is called to order the list of endpoints returned by the resolver.
 	// Setting this field to nil means no ordering of the endpoints is done.
 	//
@@ -108,7 +115,9 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 		list = rslv.Blacklist.Filter(list, time.Now())
 	}
 
-	if rslv.Sort != nil {
+	if rslv.Balancer != nil {
+		list = rslv.Balancer.Balance(serviceName, list)
+	} else if rslv.Sort != nil {
 		rslv.Sort(list)
 	}
 
