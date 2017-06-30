@@ -52,7 +52,7 @@ func TestShuffleDistribution(t *testing.T) {
 }
 
 func testShuffleDistribution(t *testing.T, shuffle func([]Endpoint)) {
-	const N = 1000
+	const N = 1000000
 
 	type counter struct {
 		index int
