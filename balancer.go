@@ -94,6 +94,9 @@ func (lb *LoadBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
 			version:  version,
 		}
 		lb.mutex.Lock()
+		if lb.services == nil {
+			lb.services = make(map[string]*loadBalancerEntry)
+		}
 		// Don't re-check if the service already exists, worst case we reset the
 		// balancer for that service which is fine, in most case it'll make the
 		// synchronized section a bit shorter.

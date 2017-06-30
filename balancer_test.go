@@ -7,37 +7,36 @@ import (
 
 var balancers = []struct {
 	name string
-	impl Balancer
+	new  func() Balancer
 }{
 	{
 		name: "RoundRobin",
-		impl: &RoundRobin{},
+		new:  func() Balancer { return &RoundRobin{} },
 	},
 
 	{
 		name: "PreferTags",
-		impl: PreferTags{"us-west-2a"},
+		new:  func() Balancer { return PreferTags{"us-west-2a"} },
 	},
 
 	{
 		name: "PreferTags+RoundRobin",
-		impl: MultiBalancer(
-			PreferTags{"us-west-2a"},
-			&RoundRobin{},
-		),
+		new: func() Balancer {
+			return MultiBalancer(PreferTags{"us-west-2a"}, &RoundRobin{})
+		},
 	},
 
 	{
 		name: "Shuffler",
-		impl: &Shuffler{},
+		new:  func() Balancer { return &Shuffler{} },
 	},
 
 	{
 		name: "WeightedShufflerOnRTT",
-		impl: &WeightedShuffler{
-			WeightOf: func(e Endpoint) float64 {
-				return float64(e.RTT)
-			},
+		new: func() Balancer {
+			return &WeightedShuffler{
+				WeightOf: func(e Endpoint) float64 { return float64(e.RTT) },
+			}
 		},
 	},
 }
@@ -45,7 +44,7 @@ var balancers = []struct {
 func TestBalancer(t *testing.T) {
 	for _, balancer := range balancers {
 		t.Run(balancer.name, func(t *testing.T) {
-			testBalancer(t, balancer.impl)
+			testBalancer(t, &LoadBalancer{New: balancer.new})
 		})
 	}
 }
@@ -91,7 +90,7 @@ func testBalancer(t *testing.T, balancer Balancer) {
 func BenchmarkBalancer(b *testing.B) {
 	for _, balancer := range balancers {
 		b.Run(balancer.name, func(b *testing.B) {
-			benchmarkBalancer(b, balancer.impl)
+			benchmarkBalancer(b, balancer.new())
 		})
 	}
 }
