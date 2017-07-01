@@ -157,7 +157,7 @@ func (rr *RoundRobin) Balance(name string, endpoints []Endpoint) []Endpoint {
 }
 
 func rotate(endpoints []Endpoint, d int) {
-	reverse(endpoints[:d-1])
+	reverse(endpoints[:d])
 	reverse(endpoints[d:])
 	reverse(endpoints)
 }
