@@ -119,11 +119,11 @@ func (lb *LoadBalancer) cleanup(version uint64) {
 	lb.mutex.RLock()
 
 	for name, entry := range lb.services {
-		if (entry.version - version) > loadBalancerCleanupInterval {
+		if diffU64(version, entry.version) > loadBalancerCleanupInterval {
 			lb.mutex.RUnlock() // wish there was a way to promote to a write-lock
 			lb.mutex.Lock()
 
-			if (entry.version - version) > loadBalancerCleanupInterval {
+			if diffU64(version, entry.version) > loadBalancerCleanupInterval {
 				delete(lb.services, name)
 			}
 
@@ -133,6 +133,13 @@ func (lb *LoadBalancer) cleanup(version uint64) {
 	}
 
 	lb.mutex.RUnlock()
+}
+
+func diffU64(high uint64, low uint64) uint64 {
+	if high < low {
+		return 0
+	}
+	return high - low
 }
 
 // RoundRobin is the implementation of a simple load balancing algorithms which
