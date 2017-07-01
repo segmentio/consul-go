@@ -83,7 +83,7 @@ func testBalancer(t *testing.T, balancer Balancer) {
 
 	for _, c := range counters {
 		endpoint := base[c.index]
-		t.Logf("ID = %  s, RTT = % 5s: % 3d\t(%g%%)", endpoint.ID, endpoint.RTT, c.value, float64(c.value)*100.0/draws)
+		t.Logf("ID = %  s, RTT = % 5s, Tags = %s: % 3d\t(%g%%)", endpoint.ID, endpoint.RTT, endpoint.Tags, c.value, float64(c.value)*100.0/draws)
 	}
 }
 

@@ -2,7 +2,6 @@ package consul
 
 import (
 	"io/ioutil"
-	"math"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -66,14 +65,14 @@ type LoadBalancer struct {
 	New func() Balancer
 
 	mutex    sync.RWMutex
-	version  uint32
-	cleaning uint32
+	version  uint64
+	cleaning uint64
 	services map[string]*loadBalancerEntry
 }
 
 type loadBalancerEntry struct {
 	Balancer
-	version uint32
+	version uint64
 }
 
 const (
@@ -82,7 +81,7 @@ const (
 
 // Balance satisfies the Balancer interface.
 func (lb *LoadBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
-	version := atomic.AddUint32(&lb.version, 1)
+	version := atomic.AddUint64(&lb.version, 1)
 
 	lb.mutex.RLock()
 	entry := lb.services[name]
@@ -107,24 +106,24 @@ func (lb *LoadBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
 	endpoints = entry.Balance(name, endpoints)
 
 	if (version % loadBalancerCleanupInterval) == 0 {
-		if atomic.CompareAndSwapUint32(&lb.cleaning, 0, 1) {
+		if atomic.CompareAndSwapUint64(&lb.cleaning, 0, 1) {
 			lb.cleanup(version)
-			atomic.StoreUint32(&lb.cleaning, 0)
+			atomic.StoreUint64(&lb.cleaning, 0)
 		}
 	}
 
 	return endpoints
 }
 
-func (lb *LoadBalancer) cleanup(version uint32) {
+func (lb *LoadBalancer) cleanup(version uint64) {
 	lb.mutex.RLock()
 
 	for name, entry := range lb.services {
-		if diffU32(version, entry.version) > loadBalancerCleanupInterval {
+		if (entry.version - version) > loadBalancerCleanupInterval {
 			lb.mutex.RUnlock() // wish there was a way to promote to a write-lock
 			lb.mutex.Lock()
 
-			if diffU32(version, entry.version) > loadBalancerCleanupInterval {
+			if (entry.version - version) > loadBalancerCleanupInterval {
 				delete(lb.services, name)
 			}
 
@@ -136,18 +135,11 @@ func (lb *LoadBalancer) cleanup(version uint32) {
 	lb.mutex.RUnlock()
 }
 
-func diffU32(high uint32, low uint32) uint32 {
-	if high < low {
-		return (math.MaxUint32 - high) + low
-	}
-	return high - low
-}
-
 // RoundRobin is the implementation of a simple load balancing algorithms which
 // reorders the slice of endpoints passed to its Balance method in a round robin
 // fashion.
 type RoundRobin struct {
-	offset uint32
+	offset uint64
 }
 
 // Balance satisfies the Balancer interface.
@@ -155,7 +147,7 @@ func (rr *RoundRobin) Balance(name string, endpoints []Endpoint) []Endpoint {
 	rotated := endpoints
 
 	n := len(endpoints)
-	i := int(atomic.AddUint32(&rr.offset, 1)) % n
+	i := int(atomic.AddUint64(&rr.offset, 1)) % n
 
 	if i != 0 {
 		rotate(endpoints, i)
