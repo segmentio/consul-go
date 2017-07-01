@@ -147,7 +147,7 @@ func (rr *RoundRobin) Balance(name string, endpoints []Endpoint) []Endpoint {
 	rotated := endpoints
 
 	n := len(endpoints)
-	i := int(atomic.AddUint64(&rr.offset, 1)) % n
+	i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n))
 
 	if i != 0 {
 		rotate(endpoints, i)
