@@ -335,9 +335,9 @@ func testResolverBlacklistNoFilter(t *testing.T, blacklist *ResolverBlacklist, e
 func testResolverBlacklistFilter(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
 	now := time.Now()
 
-	blacklist.Blacklist("127.0.0.1:1000", now.Add(time.Second))
-	blacklist.Blacklist("127.0.0.1:1003", now.Add(time.Millisecond))
-	blacklist.Blacklist("192.168.0.1:8080", now.Add(time.Hour))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
 
 	list := make([]Endpoint, len(endpoints))
 	copy(list, endpoints)
@@ -359,9 +359,9 @@ func testResolverBlacklistFilter(t *testing.T, blacklist *ResolverBlacklist, end
 func testResolverBlacklistCleanup(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
 	now := time.Now()
 
-	blacklist.Blacklist("127.0.0.1:1000", now.Add(time.Second))
-	blacklist.Blacklist("127.0.0.1:1003", now.Add(time.Millisecond))
-	blacklist.Blacklist("192.168.0.1:8080", now.Add(time.Hour))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
 
 	for i := 0; i != (resolverBlacklistCleanupInterval + 1); i++ {
 		list := make([]Endpoint, len(endpoints))
