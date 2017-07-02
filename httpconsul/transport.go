@@ -66,7 +66,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		if err != nil && attempt < 10 && t.rslv.Blacklist != nil && isIdempotent(req.Method) {
 			// TODO: make the blacklist TTL configurable here?
-			t.rslv.Blacklist.Blacklist(addrs[0].Addr.String(), time.Now().Add(1*time.Second))
+			t.rslv.Blacklist.Blacklist(addrs[0].Addr, time.Now().Add(1*time.Second))
 			attempt++
 			continue
 		}

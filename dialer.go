@@ -74,7 +74,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 		conn, err := dialer.DialContext(ctx, network, address)
 
 		if err != nil && attempt < 10 && resolver.Blacklist != nil {
-			resolver.Blacklist.Blacklist(addrs[0].Addr.String(), time.Now().Add(d.blacklistTTL()))
+			resolver.Blacklist.Blacklist(addrs[0].Addr, time.Now().Add(d.blacklistTTL()))
 			attempt++
 			continue
 		}

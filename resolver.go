@@ -443,12 +443,13 @@ const (
 )
 
 // Blacklist adds a blacklisted address, which expires and expireAt is reached.
-func (blacklist *ResolverBlacklist) Blacklist(addr string, expireAt time.Time) {
+func (blacklist *ResolverBlacklist) Blacklist(addr net.Addr, expireAt time.Time) {
+	key := addr.String()
 	blacklist.mutex.Lock()
 	if blacklist.addrs == nil {
 		blacklist.addrs = make(map[string]time.Time)
 	}
-	blacklist.addrs[addr] = expireAt
+	blacklist.addrs[key] = expireAt
 	blacklist.mutex.Unlock()
 }
 
