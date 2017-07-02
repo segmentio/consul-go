@@ -220,6 +220,7 @@ func (rslv *Resolver) tomography() *Tomography {
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
+	Blacklist:   &ResolverBlacklist{},
 	Sort:        WeightedShuffleOnRTT,
 }
 
