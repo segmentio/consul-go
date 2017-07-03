@@ -44,35 +44,41 @@ type transport struct {
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	host, _ := splitHostPort(req.URL.Host)
 	resolve := len(host) != 0 && net.ParseIP(host) == nil
-	attempt := 0
 
 	if !resolve {
 		return t.base.RoundTrip(req)
 	}
 
-	for {
-		addrs, err := t.rslv.LookupService(req.Context(), host)
-		if err != nil {
-			return nil, err
-		}
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
-		}
+	var addrs []consul.Endpoint
+	var res *http.Response
+	var err error
+
+	if addrs, err = t.rslv.LookupService(req.Context(), host); err != nil {
+		return nil, err
+	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
+	}
+
+	for _, addr := range addrs {
 		if len(req.Host) == 0 {
 			req.Host = req.URL.Host
 		}
 		req.URL.Host = addrs[0].Addr.String()
-		res, err := t.base.RoundTrip(req)
+		res, err = t.base.RoundTrip(req)
 
-		if err != nil && attempt < 10 && t.rslv.Blacklist != nil && isIdempotent(req.Method) {
-			// TODO: make the blacklist TTL configurable here?
-			t.rslv.Blacklist.Blacklist(addrs[0].Addr, time.Now().Add(1*time.Second))
-			attempt++
-			continue
+		if err == nil || !isIdempotent(req.Method) {
+			break
 		}
 
-		return res, err
+		if t.rslv.Blacklist != nil {
+			// TODO: make the blacklist TTL configurable here?
+			t.rslv.Blacklist.Blacklist(addr.Addr, time.Now().Add(1*time.Second))
+		}
 	}
+
+	return res, err
 }
 
 func splitHostPort(s string) (string, string) {

@@ -46,7 +46,6 @@ func (d *Dialer) Dial(network string, address string) (net.Conn, error) {
 func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
 	host, _ := splitHostPort(address)
 	resolve := len(host) != 0 && net.ParseIP(host) == nil
-	attempt := 0
 
 	resolver := d.resolver()
 	dialer := &net.Dialer{
@@ -62,25 +61,31 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 		return dialer.DialContext(ctx, network, address)
 	}
 
-	for {
-		addrs, err := resolver.LookupService(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
-		}
-		address = addrs[0].Addr.String()
-		conn, err := dialer.DialContext(ctx, network, address)
+	var addrs []Endpoint
+	var conn net.Conn
+	var err error
 
-		if err != nil && attempt < 10 && resolver.Blacklist != nil {
-			resolver.Blacklist.Blacklist(addrs[0].Addr, time.Now().Add(d.blacklistTTL()))
-			attempt++
-			continue
-		}
-
-		return conn, err
+	if addrs, err = resolver.LookupService(ctx, host); err != nil {
+		return nil, err
 	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
+	}
+
+	for _, addr := range addrs {
+		conn, err = dialer.DialContext(ctx, network, addr.Addr.String())
+
+		if err == nil {
+			break
+		}
+
+		if resolver.Blacklist != nil {
+			resolver.Blacklist.Blacklist(addr.Addr, time.Now().Add(d.blacklistTTL()))
+		}
+	}
+
+	return conn, err
 }
 
 func (d *Dialer) resolver() *Resolver {
