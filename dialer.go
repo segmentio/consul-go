@@ -24,6 +24,7 @@ type Dialer struct {
 	DualStack     bool
 	FallbackDelay time.Duration
 	KeepAlive     time.Duration
+	BlacklistTTL  time.Duration
 	Resolver      *Resolver
 }
 
@@ -43,25 +44,48 @@ func (d *Dialer) Dial(network string, address string) (net.Conn, error) {
 // (*net.Dialer).Dialcontext documentation at
 // https://golang.org/pkg/net/#Dialer.DialContext.
 func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	if host, _ := splitHostPort(address); len(host) != 0 && net.ParseIP(host) == nil {
-		addrs, err := d.resolver().LookupService(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
-		}
-		address = addrs[0].Addr.String()
-	}
+	host, _ := splitHostPort(address)
+	resolve := len(host) != 0 && net.ParseIP(host) == nil
 
-	return (&net.Dialer{
+	resolver := d.resolver()
+	dialer := &net.Dialer{
 		Timeout:       d.Timeout,
 		Deadline:      d.Deadline,
 		LocalAddr:     d.LocalAddr,
 		DualStack:     d.DualStack,
 		FallbackDelay: d.FallbackDelay,
 		KeepAlive:     d.KeepAlive,
-	}).DialContext(ctx, network, address)
+	}
+
+	if !resolve {
+		return dialer.DialContext(ctx, network, address)
+	}
+
+	var addrs []Endpoint
+	var conn net.Conn
+	var err error
+
+	if addrs, err = resolver.LookupService(ctx, host); err != nil {
+		return nil, err
+	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
+	}
+
+	for _, addr := range addrs {
+		conn, err = dialer.DialContext(ctx, network, addr.Addr.String())
+
+		if err == nil {
+			break
+		}
+
+		if resolver.Blacklist != nil {
+			resolver.Blacklist.Blacklist(addr.Addr, time.Now().Add(d.blacklistTTL()))
+		}
+	}
+
+	return conn, err
 }
 
 func (d *Dialer) resolver() *Resolver {
@@ -69,6 +93,13 @@ func (d *Dialer) resolver() *Resolver {
 		return rslv
 	}
 	return DefaultResolver
+}
+
+func (d *Dialer) blacklistTTL() time.Duration {
+	if ttl := d.BlacklistTTL; ttl != 0 {
+		return ttl
+	}
+	return 1 * time.Second
 }
 
 // Dial is a wrapper for calling (*Dialer).Dial on a default dialer.

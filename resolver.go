@@ -42,6 +42,10 @@ type Resolver struct {
 	// OnlyPassing fields.
 	Cache *ResolverCache
 
+	// This field may be set to allow the resolver to support temporarily
+	// blacklisting addresses that are known to be unreachable.
+	Blacklist *ResolverBlacklist
+
 	// Agent is used to set the origin from which the distance to each endpoints
 	// are computed. If nil, DefaultAgent is used instead.
 	Agent *Agent
@@ -98,6 +102,10 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 
 	if err != nil {
 		return nil, err
+	}
+
+	if rslv.Blacklist != nil {
+		list = rslv.Blacklist.Filter(list, time.Now())
 	}
 
 	if rslv.Sort != nil {
@@ -166,11 +174,8 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 
 	for i, res := range results {
 		list[i] = Endpoint{
-			ID: res.Service.ID,
-			Addr: &serviceAddr{
-				addr: res.Service.Address,
-				port: res.Service.Port,
-			},
+			ID:   res.Service.ID,
+			Addr: newServiceAddr(res.Service.Address, res.Service.Port),
 			Tags: res.Service.Tags,
 			Node: res.Node.Node,
 			Meta: res.Node.Meta,
@@ -215,6 +220,7 @@ func (rslv *Resolver) tomography() *Tomography {
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
+	Blacklist:   &ResolverBlacklist{},
 	Sort:        WeightedShuffleOnRTT,
 }
 
@@ -224,18 +230,14 @@ func LookupService(ctx context.Context, name string) ([]Endpoint, error) {
 	return DefaultResolver.LookupService(ctx, name)
 }
 
-type serviceAddr struct {
-	addr string
-	port int
+type serviceAddr string
+
+func newServiceAddr(host string, port int) serviceAddr {
+	return serviceAddr(net.JoinHostPort(host, strconv.Itoa(port)))
 }
 
-func (a *serviceAddr) Network() string {
-	return ""
-}
-
-func (a *serviceAddr) String() string {
-	return net.JoinHostPort(a.addr, strconv.Itoa(a.port))
-}
+func (serviceAddr) Network() string  { return "" }
+func (a serviceAddr) String() string { return string(a) }
 
 // LookupServiceFunc is the signature of functions that can be used to lookup
 // service names.
@@ -423,4 +425,86 @@ func splitNameID(s string) (name string, id string) {
 		name, id = s[:i], s[i+1:]
 	}
 	return
+}
+
+// ResolverBlacklist implements a negative caching for Resolver instances.
+// It works by registering addresses that should be filtered out of a service
+// name resolution result, with a deadline at which the address blacklist will
+// expire.
+type ResolverBlacklist struct {
+	mutex    sync.RWMutex
+	version  uint64
+	cleaning uint64
+	addrs    map[string]time.Time
+}
+
+const (
+	resolverBlacklistCleanupInterval = 1000
+)
+
+// Blacklist adds a blacklisted address, which expires and expireAt is reached.
+func (blacklist *ResolverBlacklist) Blacklist(addr net.Addr, expireAt time.Time) {
+	key := addr.String()
+	blacklist.mutex.Lock()
+	if blacklist.addrs == nil {
+		blacklist.addrs = make(map[string]time.Time)
+	}
+	blacklist.addrs[key] = expireAt
+	blacklist.mutex.Unlock()
+}
+
+// Filter takes a slice of endpoints and the current time, and returns that
+// same slice trimmed, where all blacklisted addresses have been filtered out.
+func (blacklist *ResolverBlacklist) Filter(endpoints []Endpoint, now time.Time) []Endpoint {
+	version := atomic.AddUint64(&blacklist.version, 1)
+
+	blacklist.mutex.RLock()
+	blackListLength := len(blacklist.addrs)
+	endpointsLength := 0
+
+	if blackListLength == 0 {
+		// Fast path, most of the time the black list is expected to be empty,
+		// no need to pay the price of going through the endpoints in this case.
+		endpointsLength = len(endpoints)
+	} else {
+		for i := range endpoints {
+			expireAt, blacklisted := blacklist.addrs[endpoints[i].Addr.String()]
+
+			if !blacklisted || now.After(expireAt) {
+				endpoints[endpointsLength] = endpoints[i]
+				endpointsLength++
+			}
+		}
+	}
+
+	blacklist.mutex.RUnlock()
+
+	if blackListLength != 0 && (version%resolverBlacklistCleanupInterval) == 0 {
+		if atomic.CompareAndSwapUint64(&blacklist.cleaning, 0, 1) {
+			blacklist.cleanup(now)
+			atomic.StoreUint64(&blacklist.cleaning, 0)
+		}
+	}
+
+	return endpoints[:endpointsLength]
+}
+
+func (blacklist *ResolverBlacklist) cleanup(now time.Time) {
+	blacklist.mutex.RLock()
+
+	for addr, expireAt := range blacklist.addrs {
+		if now.After(expireAt) {
+			blacklist.mutex.RUnlock()
+			blacklist.mutex.Lock()
+
+			if expireAt := blacklist.addrs[addr]; now.After(expireAt) {
+				delete(blacklist.addrs, addr)
+			}
+
+			blacklist.mutex.Unlock()
+			blacklist.mutex.RLock()
+		}
+	}
+
+	blacklist.mutex.RUnlock()
 }

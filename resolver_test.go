@@ -78,9 +78,9 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 	}
 
 	if !reflect.DeepEqual(addrs, []Endpoint{
-		{Addr: &serviceAddr{"192.168.0.1", 4242}},
-		{Addr: &serviceAddr{"192.168.0.2", 4242}},
-		{Addr: &serviceAddr{"192.168.0.3", 4242}},
+		{Addr: newServiceAddr("192.168.0.1", 4242)},
+		{Addr: newServiceAddr("192.168.0.2", 4242)},
+		{Addr: newServiceAddr("192.168.0.3", 4242)},
 	}) {
 		t.Error("bad addresses returned:", addrs)
 	}
@@ -213,9 +213,9 @@ func testLookupHost(t *testing.T, cache *ResolverCache) {
 
 func TestResolverCache(t *testing.T) {
 	list := []Endpoint{
-		{Addr: &serviceAddr{"192.168.0.1", 4242}},
-		{Addr: &serviceAddr{"192.168.0.2", 4242}},
-		{Addr: &serviceAddr{"192.168.0.3", 4242}},
+		{Addr: newServiceAddr("192.168.0.1", 4242)},
+		{Addr: newServiceAddr("192.168.0.2", 4242)},
+		{Addr: newServiceAddr("192.168.0.3", 4242)},
 	}
 
 	t.Run("ensure there are cache hits when making service lookup calls in a tight loop", func(t *testing.T) {
@@ -282,4 +282,100 @@ func TestResolverCache(t *testing.T) {
 			t.Error("bad number of cache misses:", n)
 		}
 	})
+}
+
+func TestResolverBlacklist(t *testing.T) {
+	tests := []struct {
+		scenario string
+		function func(*testing.T, *ResolverBlacklist, []Endpoint)
+	}{
+		{
+			scenario: "when no address is blacklisted no address is filtered out",
+			function: testResolverBlacklistNoFilter,
+		},
+		{
+			scenario: "blacklisted addresses are filtered out of the endpoint list",
+			function: testResolverBlacklistFilter,
+		},
+		{
+			scenario: "blacklisted addresses are cleaned up after enough calls to Filter",
+			function: testResolverBlacklistCleanup,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.scenario, func(t *testing.T) {
+			blacklist := &ResolverBlacklist{}
+			endpoints := []Endpoint{
+				{ID: "A", Addr: newServiceAddr("127.0.0.1", 1000)},
+				{ID: "B", Addr: newServiceAddr("127.0.0.1", 1001)},
+				{ID: "C", Addr: newServiceAddr("127.0.0.1", 1002)},
+				{ID: "D", Addr: newServiceAddr("127.0.0.1", 1003)},
+				{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
+			}
+
+			test.function(t, blacklist, endpoints)
+		})
+	}
+}
+
+func testResolverBlacklistNoFilter(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+	now := time.Now()
+
+	list := make([]Endpoint, len(endpoints))
+	copy(list, endpoints)
+
+	if unfiltered := blacklist.Filter(list, now); !reflect.DeepEqual(unfiltered, endpoints) {
+		t.Error("bad endpoint list:")
+		t.Log("expected:", endpoints)
+		t.Log("found:   ", unfiltered)
+	}
+}
+
+func testResolverBlacklistFilter(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+	now := time.Now()
+
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
+
+	list := make([]Endpoint, len(endpoints))
+	copy(list, endpoints)
+
+	expected := []Endpoint{
+		{ID: "B", Addr: newServiceAddr("127.0.0.1", 1001)},
+		{ID: "C", Addr: newServiceAddr("127.0.0.1", 1002)},
+		{ID: "D", Addr: newServiceAddr("127.0.0.1", 1003)},
+		{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
+	}
+
+	if filtered := blacklist.Filter(list, now.Add(500*time.Millisecond)); !reflect.DeepEqual(filtered, expected) {
+		t.Error("bad endpoint list:")
+		t.Log("expected:", expected)
+		t.Log("found:   ", filtered)
+	}
+}
+
+func testResolverBlacklistCleanup(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+	now := time.Now()
+
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
+
+	for i := 0; i != (resolverBlacklistCleanupInterval + 1); i++ {
+		list := make([]Endpoint, len(endpoints))
+		copy(list, endpoints)
+		blacklist.Filter(list, now.Add(2*time.Second))
+	}
+
+	blacklist.mutex.Lock()
+
+	if !reflect.DeepEqual(blacklist.addrs, map[string]time.Time{
+		"192.168.0.1:8080": now.Add(time.Hour),
+	}) {
+		t.Error("bad blacklist state:", blacklist.addrs)
+	}
+
+	blacklist.mutex.Unlock()
 }

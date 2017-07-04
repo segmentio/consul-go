@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	consul "github.com/segmentio/consul-go"
 )
@@ -41,20 +42,43 @@ type transport struct {
 }
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if host, _ := splitHostPort(req.URL.Host); len(host) != 0 && net.ParseIP(host) == nil {
-		addrs, err := t.rslv.LookupService(req.Context(), host)
-		if err != nil {
-			return nil, err
-		}
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
-		}
+	host, _ := splitHostPort(req.URL.Host)
+	resolve := len(host) != 0 && net.ParseIP(host) == nil
+
+	if !resolve {
+		return t.base.RoundTrip(req)
+	}
+
+	var addrs []consul.Endpoint
+	var res *http.Response
+	var err error
+
+	if addrs, err = t.rslv.LookupService(req.Context(), host); err != nil {
+		return nil, err
+	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses returned by the resolver for %s", host)
+	}
+
+	for _, addr := range addrs {
 		if len(req.Host) == 0 {
 			req.Host = req.URL.Host
 		}
 		req.URL.Host = addrs[0].Addr.String()
+		res, err = t.base.RoundTrip(req)
+
+		if err == nil || !isIdempotent(req.Method) {
+			break
+		}
+
+		if t.rslv.Blacklist != nil {
+			// TODO: make the blacklist TTL configurable here?
+			t.rslv.Blacklist.Blacklist(addr.Addr, time.Now().Add(1*time.Second))
+		}
 	}
-	return t.base.RoundTrip(req)
+
+	return res, err
 }
 
 func splitHostPort(s string) (string, string) {
@@ -63,4 +87,12 @@ func splitHostPort(s string) (string, string) {
 		return s, ""
 	}
 	return host, port
+}
+
+func isIdempotent(method string) bool {
+	switch method {
+	case "GET", "HEAD", "PUT", "DELETE", "OPTIONS":
+		return true
+	}
+	return false
 }
