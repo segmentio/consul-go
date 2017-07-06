@@ -231,8 +231,9 @@ func (rslv *Resolver) tomography() *Tomography {
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
+	Cache:       &ResolverCache{Balancer: defaultCacheBalancer()},
 	Blacklist:   &ResolverBlacklist{},
-	Balancer:    DefaultBalancer,
+	Balancer:    &LoadBalancer{New: func() Balancer { return &RoundRobin{} }},
 	Sort:        WeightedShuffleOnRTT,
 }
 
@@ -265,6 +266,10 @@ type ResolverCache struct {
 	// used.
 	CacheTimeout time.Duration
 
+	// A balancer used by the cache to potentially filter or reorder endpoints
+	// from the resolved names before caching them.
+	Balancer Balancer
+
 	once sync.Once
 	cmap *resolverCacheMap
 }
@@ -282,6 +287,9 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 		// TODO: check the error type here and discard things like context
 		// cancellations and timeouts?
 		entry.res, entry.err = lookup(ctx, name)
+		if entry.err != nil && cache.Balancer != nil {
+			entry.res = cache.Balancer.Balance(name, entry.res)
+		}
 		entry.mutex.Unlock()
 	}
 

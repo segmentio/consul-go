@@ -4,9 +4,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Balancer is the interface implemented by types that provides load balancing
@@ -74,36 +74,6 @@ type LoadBalancer struct {
 	version  uint64
 	cleaning uint64
 	services map[string]*loadBalancerEntry
-}
-
-// NewLoadBalancer creates and returns a new instance of LoadBalancer which
-// reorders the list of service endpoints using the list of algorithms passed
-// as arguments. Valid balancing algorithm names are "round-robin",
-// "prefer-ec2-zone", "shuffle", and "weighted-shuffle-on-rtt", or any other
-// algorithm which has been registered in the Balancers map. Invalid names
-// are ignored, if there are no valid algorithms then round robin is used.
-func NewLoadBalancer(algorithms ...string) *LoadBalancer {
-	constructors := make([](func() Balancer), 0, len(algorithms))
-
-	for _, a := range algorithms {
-		if c, ok := Balancers[a]; ok {
-			constructors = append(constructors, c)
-		}
-	}
-
-	if len(constructors) == 0 {
-		constructors = append(constructors, func() Balancer { return &RoundRobin{} })
-	}
-
-	return &LoadBalancer{
-		New: func() Balancer {
-			balancers := make([]Balancer, len(constructors))
-			for i, constructor := range constructors {
-				balancers[i] = constructor()
-			}
-			return MultiBalancer(balancers...)
-		},
-	}
 }
 
 type loadBalancerEntry struct {
@@ -279,23 +249,29 @@ func containsTag(tags []string, tag string) bool {
 // PreferEC2AvailabilityZone is a constructor for a balancer which prefers
 // routing traffic to services registered in the same EC2 availability zone
 // than the caller.
-func PreferEC2AvailabilityZone() (Balancer, error) {
-	c := &http.Client{
-		Transport: DefaultClient.Transport,
+//
+// If the metadata aren't available the function returns the NullBalancer
+// balancer which doesn't modify the list of endpoints.
+func PreferEC2AvailabilityZone(c *http.Client) Balancer {
+	if c == nil {
+		c = &http.Client{
+			Timeout:   5 * time.Second,
+			Transport: DefaultClient.Transport,
+		}
 	}
 
 	r, err := c.Get("http://169.254.169.254/latest/meta-data/placement/availability-zone")
 	if err != nil {
-		return nil, err
+		return &NullBalancer{}
 	}
 	defer r.Body.Close()
 
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		return nil, err
+		return &NullBalancer{}
 	}
 
-	return PreferTags{string(b)}, nil
+	return PreferTags{string(b)}
 }
 
 // Shuffler is a Balancer implementation which returns a randomly shuffled list
@@ -327,39 +303,19 @@ func (ws *WeightedShuffler) Balance(name string, endpoints []Endpoint) []Endpoin
 	return endpoints
 }
 
-// Balancers is a map of load balancing algorithm names to constructors.
-// By default it contains the algorithms defined in this package, but programs
-// may modify this map to change the list of algorithms supported by the
-// NewLoadBalancer function.
-var Balancers = map[string](func() Balancer){
-	"round-robin": func() Balancer {
-		return &RoundRobin{}
-	},
+// NullBalancer is a balancer which doesn't modify the list of endpoints.
+type NullBalancer struct{}
 
-	"prefer-ec2-zone": func() Balancer {
-		b, err := PreferEC2AvailabilityZone()
-		if err != nil {
-			b = BalancerFunc(func(_ string, e []Endpoint) []Endpoint { return e })
-		}
-		return b
-	},
-
-	"shuffle": func() Balancer {
-		return &Shuffler{}
-	},
-
-	"weighted-shuffle-on-rtt": func() Balancer {
-		return &WeightedShuffler{WeightOf: WeightRTT}
-	},
+// Balance satisfies the Balancer interface.
+func (*NullBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
+	return endpoints
 }
 
-// DefaultBalancer is the balancer used by the default resolver. The balancer
-// is configured based on the value of the CONSUL_LOAD_BALANCER environment
-// variable which is expected to be set to a '+' separated list of load balancer
-// names.
-//
-// If CONSUL_LOAD_BALANCER isn't set the default balancer uses a simple
-// round-robin algorithm.
-//
-// Refer to the NewLoadBalancer documentation for a list of valid names.
-var DefaultBalancer Balancer = NewLoadBalancer(strings.Split(os.Getenv("CONSUL_LOAD_BALANCER"), "+")...)
+func defaultCacheBalancer() Balancer {
+	switch os.Getenv("CONSUL_CACHE_BALANCER") {
+	case "ec2-zone-affinity":
+		return PreferEC2AvailabilityZone(nil)
+	default:
+		return &NullBalancer{}
+	}
+}

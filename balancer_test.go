@@ -10,6 +10,11 @@ var balancers = []struct {
 	new  func() Balancer
 }{
 	{
+		name: "NullBalancer",
+		new:  func() Balancer { return &NullBalancer{} },
+	},
+
+	{
 		name: "RoundRobin",
 		new:  func() Balancer { return &RoundRobin{} },
 	},
@@ -50,17 +55,7 @@ var balancers = []struct {
 
 	{
 		name: "LoadBlancer+RoundRobin",
-		new:  func() Balancer { return NewLoadBalancer("round-robin") },
-	},
-
-	{
-		name: "LoadBlancer+Shuffler",
-		new:  func() Balancer { return NewLoadBalancer("shuffle") },
-	},
-
-	{
-		name: "LoadBlancer+WeightedShufflerOnRTT",
-		new:  func() Balancer { return NewLoadBalancer("weighted-shuffle-on-rtt") },
+		new:  func() Balancer { return &LoadBalancer{New: func() Balancer { return &RoundRobin{} }} },
 	},
 }
 
