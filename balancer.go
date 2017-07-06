@@ -256,7 +256,6 @@ func (tags PreferTags) Balance(name string, endpoints []Endpoint) []Endpoint {
 			}
 
 			swap(endpoints, i, j)
-			j++
 			i++
 		}
 	}

@@ -85,10 +85,10 @@ func testBalancer(t *testing.T, balancer Balancer) {
 	endpoints := make([]Endpoint, endpointsCount)
 	for i := 0; i != draws; i++ {
 		copy(endpoints, base)
-		endpoints = balancer.Balance("test-service", endpoints)
+		balanced := balancer.Balance("test-service", endpoints)
 
 		for i := range base {
-			if endpoints[0].ID == base[i].ID {
+			if balanced[0].ID == base[i].ID {
 				counters[i].value++
 				break
 			}
