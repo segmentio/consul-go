@@ -3,6 +3,8 @@ package consul
 import (
 	"io/ioutil"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -62,12 +64,46 @@ func (m *multiBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
 // on a set of endpoints belonging to a single service (like RoundRobin) in the
 // context of the Resolver which may be used to
 type LoadBalancer struct {
+	// Constructs the balancing algorithm used by this load balancer.
+	//
+	// The function cannot be nil or calling the LoadBalancer's Balance method
+	// will panic.
 	New func() Balancer
 
 	mutex    sync.RWMutex
 	version  uint64
 	cleaning uint64
 	services map[string]*loadBalancerEntry
+}
+
+// NewLoadBalancer creates and returns a new instance of LoadBalancer which
+// reorders the list of service endpoints using the list of algorithms passed
+// as arguments. Valid balancing algorithm names are "round-robin",
+// "prefer-ec2-zone", "shuffle", and "weighted-shuffle-on-rtt", or any other
+// algorithm which has been registered in the Balancers map. Invalid names
+// are ignored, if there are no valid algorithms then round robin is used.
+func NewLoadBalancer(algorithms ...string) *LoadBalancer {
+	constructors := make([](func() Balancer), 0, len(algorithms))
+
+	for _, a := range algorithms {
+		if c, ok := Balancers[a]; ok {
+			constructors = append(constructors, c)
+		}
+	}
+
+	if len(constructors) == 0 {
+		constructors = append(constructors, func() Balancer { return &RoundRobin{} })
+	}
+
+	return &LoadBalancer{
+		New: func() Balancer {
+			balancers := make([]Balancer, len(constructors))
+			for i, constructor := range constructors {
+				balancers[i] = constructor()
+			}
+			return MultiBalancer(balancers...)
+		},
+	}
 }
 
 type loadBalancerEntry struct {
@@ -245,7 +281,11 @@ func containsTag(tags []string, tag string) bool {
 // routing traffic to services registered in the same EC2 availability zone
 // than the caller.
 func PreferEC2AvailabilityZone() (Balancer, error) {
-	r, err := http.Get("http://169.254.169.254/latest/meta-data/placement/availability-zone")
+	c := &http.Client{
+		Transport: DefaultClient.Transport,
+	}
+
+	r, err := c.Get("http://169.254.169.254/latest/meta-data/placement/availability-zone")
 	if err != nil {
 		return nil, err
 	}
@@ -287,3 +327,40 @@ func (ws *WeightedShuffler) Balance(name string, endpoints []Endpoint) []Endpoin
 	WeightedShuffle(endpoints, weightOf)
 	return endpoints
 }
+
+// Balancers is a map of load balancing algorithm names to constructors.
+// By default it contains the algorithms defined in this package, but programs
+// may modify this map to change the list of algorithms supported by the
+// NewLoadBalancer function.
+var Balancers = map[string](func() Balancer){
+	"round-robin": func() Balancer {
+		return &RoundRobin{}
+	},
+
+	"prefer-ec2-zone": func() Balancer {
+		b, err := PreferEC2AvailabilityZone()
+		if err != nil {
+			b = BalancerFunc(func(_ string, e []Endpoint) []Endpoint { return e })
+		}
+		return b
+	},
+
+	"shuffle": func() Balancer {
+		return &Shuffler{}
+	},
+
+	"weighted-shuffle-on-rtt": func() Balancer {
+		return &WeightedShuffler{WeightOf: WeightRTT}
+	},
+}
+
+// DefaultBalancer is the balancer used by the default resolver. The balancer
+// is configured based on the value of the CONSUL_LOAD_BALANCER environment
+// variable which is expected to be set to a '+' separated list of load balancer
+// names.
+//
+// If CONSUL_LOAD_BALANCER isn't set the default balancer uses a simple
+// round-robinn algorithm.
+//
+// Refer to the NewLoadBalancer documentation for a list of valid names.
+var DefaultBalancer Balancer = NewLoadBalancer(strings.Split(os.Getenv("CONSUL_LOAD_BALANCER"), "+")...)

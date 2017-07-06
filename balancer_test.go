@@ -20,9 +20,16 @@ var balancers = []struct {
 	},
 
 	{
-		name: "PreferTags+RoundRobin",
+		name: "PreferTags(us-west-2a)+RoundRobin",
 		new: func() Balancer {
 			return MultiBalancer(PreferTags{"us-west-2a"}, &RoundRobin{})
+		},
+	},
+
+	{
+		name: "PreferTags(us-west-2b)+RoundRobin",
+		new: func() Balancer {
+			return MultiBalancer(PreferTags{"us-west-2b"}, &RoundRobin{})
 		},
 	},
 
@@ -33,18 +40,29 @@ var balancers = []struct {
 
 	{
 		name: "WeightedShufflerOnRTT",
-		new: func() Balancer {
-			return &WeightedShuffler{
-				WeightOf: func(e Endpoint) float64 { return float64(e.RTT) },
-			}
-		},
+		new:  func() Balancer { return &WeightedShuffler{WeightOf: WeightRTT} },
+	},
+
+	{
+		name: "LoadBlancer+RoundRobin",
+		new:  func() Balancer { return NewLoadBalancer("round-robin") },
+	},
+
+	{
+		name: "LoadBlancer+Shuffler",
+		new:  func() Balancer { return NewLoadBalancer("shuffle") },
+	},
+
+	{
+		name: "LoadBlancer+WeightedShufflerOnRTT",
+		new:  func() Balancer { return NewLoadBalancer("weighted-shuffle-on-rtt") },
 	},
 }
 
 func TestBalancer(t *testing.T) {
 	for _, balancer := range balancers {
 		t.Run(balancer.name, func(t *testing.T) {
-			testBalancer(t, &LoadBalancer{New: balancer.new})
+			testBalancer(t, balancer.new())
 		})
 	}
 }

@@ -232,6 +232,7 @@ func (rslv *Resolver) tomography() *Tomography {
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
 	Blacklist:   &ResolverBlacklist{},
+	Balancer:    DefaultBalancer,
 	Sort:        WeightedShuffleOnRTT,
 }
 
