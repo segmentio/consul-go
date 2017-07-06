@@ -15,8 +15,13 @@ var balancers = []struct {
 	},
 
 	{
-		name: "PreferTags",
+		name: "PreferTags(us-west-2a)",
 		new:  func() Balancer { return PreferTags{"us-west-2a"} },
+	},
+
+	{
+		name: "PreferTags(us-west-2b)",
+		new:  func() Balancer { return PreferTags{"us-west-2b"} },
 	},
 
 	{
