@@ -359,7 +359,7 @@ var Balancers = map[string](func() Balancer){
 // names.
 //
 // If CONSUL_LOAD_BALANCER isn't set the default balancer uses a simple
-// round-robinn algorithm.
+// round-robin algorithm.
 //
 // Refer to the NewLoadBalancer documentation for a list of valid names.
 var DefaultBalancer Balancer = NewLoadBalancer(strings.Split(os.Getenv("CONSUL_LOAD_BALANCER"), "+")...)
