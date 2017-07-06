@@ -164,7 +164,7 @@ func (lb *LoadBalancer) cleanup(version uint64) {
 			}
 
 			lb.mutex.Unlock()
-			lb.mutex.RUnlock()
+			lb.mutex.RLock()
 		}
 	}
 
