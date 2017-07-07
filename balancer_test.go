@@ -20,6 +20,11 @@ var balancers = []struct {
 	},
 
 	{
+		name: "Rotator",
+		new:  func() Balancer { return &Rotator{} },
+	},
+
+	{
 		name: "PreferTags(us-west-2a)",
 		new:  func() Balancer { return PreferTags{"us-west-2a"} },
 	},

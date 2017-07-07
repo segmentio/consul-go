@@ -149,7 +149,7 @@ func diffU64(high uint64, low uint64) uint64 {
 }
 
 // RoundRobin is the implementation of a simple load balancing algorithms which
-// reorders the slice of endpoints passed to its Balance method in a round robin
+// chooses and returns a single endpoint of the input list in a round robin
 // fashion.
 type RoundRobin struct {
 	offset uint64
@@ -157,6 +157,23 @@ type RoundRobin struct {
 
 // Balance satisfies the Balancer interface.
 func (rr *RoundRobin) Balance(name string, endpoints []Endpoint) []Endpoint {
+	n := len(endpoints)
+	i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n))
+	return endpoints[i : i+1]
+}
+
+// Rotator is the implementation of a load balancing algorithms similar to
+// RoundRobin but which returns the full list of endpoints instead of a single
+// one.
+//
+// Using this balancer is useful to take advantage of the automatic retry logic
+// implemented in the dialer or http transport.
+type Rotator struct {
+	offset uint64
+}
+
+// Balance satisfies the Balancer interface.
+func (rr *Rotator) Balance(name string, endpoints []Endpoint) []Endpoint {
 	rotated := endpoints
 
 	n := len(endpoints)
