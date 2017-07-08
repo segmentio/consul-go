@@ -174,8 +174,6 @@ type Rotator struct {
 
 // Balance satisfies the Balancer interface.
 func (rr *Rotator) Balance(name string, endpoints []Endpoint) []Endpoint {
-	rotated := endpoints
-
 	n := len(endpoints)
 	i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n))
 
@@ -183,7 +181,7 @@ func (rr *Rotator) Balance(name string, endpoints []Endpoint) []Endpoint {
 		rotate(endpoints, i)
 	}
 
-	return rotated
+	return endpoints
 }
 
 func rotate(endpoints []Endpoint, d int) {
