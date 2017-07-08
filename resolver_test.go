@@ -18,6 +18,7 @@ func TestResolver(t *testing.T) {
 		t.Run("cached", func(t *testing.T) { testLookupService(t, &ResolverCache{}) })
 		t.Run("by-name", func(t *testing.T) { testLookupServiceByName(t, nil) })
 		t.Run("by-ID", func(t *testing.T) { testLookupServiceByID(t, nil) })
+		t.Run("looking up service by names or IDs works properly with cache and balancers", testLookupServiceWithBalancer)
 	})
 	t.Run("LookupHost", func(t *testing.T) {
 		t.Run("uncached", func(t *testing.T) { testLookupHost(t, nil) })
@@ -208,6 +209,67 @@ func testLookupHost(t *testing.T, cache *ResolverCache) {
 		"192.168.0.3:4242",
 	}) {
 		t.Error("bad addresses returned:", addrs)
+	}
+}
+
+func testLookupServiceWithBalancer(t *testing.T) {
+	lstn := &Listener{
+		ServiceName: "test-consul-go-with-balancer",
+		ServiceID:   "1234",
+		ServiceTags: []string{"us-west-2b"},
+	}
+
+	l1, err := lstn.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l1.Close()
+
+	lstn.ServiceID = "5678"
+	lstn.ServiceTags = []string{"us-west-2a"}
+
+	l2, err := lstn.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l2.Close()
+
+	rslv := Resolver{
+		OnlyPassing: true,
+		Balancer:    &RoundRobin{},
+		Cache:       &ResolverCache{Balancer: PreferTags{"us-west-2a"}},
+	}
+
+	for i := 0; i != 4; i++ {
+		addrs, err := rslv.LookupService(context.Background(), "test-consul-go-with-balancer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(addrs) != 1 {
+			t.Fatal("bad address count:", addrs)
+		}
+		if addrs[0].ID != "test-consul-go-with-balancer:5678" {
+			t.Error("bad ID:", addrs[0].ID)
+		}
+		if addrs[0].Addr.String() != l2.Addr().String() {
+			t.Error("bad address:", addrs[0].Addr)
+		}
+	}
+
+	for i := 0; i != 4; i++ {
+		addrs, err := rslv.LookupService(context.Background(), "test-consul-go-with-balancer:1234")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(addrs) != 1 {
+			t.Fatal("bad address count:", addrs)
+		}
+		if addrs[0].ID != "test-consul-go-with-balancer:1234" {
+			t.Error("bad ID:", addrs[0].ID)
+		}
+		if addrs[0].Addr.String() != l1.Addr().String() {
+			t.Error("bad address:", addrs[0].Addr)
+		}
 	}
 }
 

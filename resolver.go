@@ -101,12 +101,10 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 	var list []Endpoint
 	var err error
 
-	serviceName, serviceID := splitNameID(name)
-
 	if cache := rslv.Cache; cache != nil {
-		list, err = cache.LookupService(ctx, serviceName, rslv.lookupService)
+		list, err = cache.LookupService(ctx, name, rslv.lookupService)
 	} else {
-		list, err = rslv.lookupService(ctx, serviceName)
+		list, err = rslv.lookupService(ctx, name)
 	}
 
 	if err != nil {
@@ -118,22 +116,9 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 	}
 
 	if rslv.Balancer != nil {
-		list = rslv.Balancer.Balance(serviceName, list)
+		list = rslv.Balancer.Balance(name, list)
 	} else if rslv.Sort != nil {
 		rslv.Sort(list)
-	}
-
-	if len(serviceID) != 0 {
-		i := 0
-
-		for _, e := range list {
-			if _, id := splitNameID(e.ID); id == serviceID {
-				list[i] = e
-				i++
-			}
-		}
-
-		list = list[:i]
 	}
 
 	return list, err
@@ -177,7 +162,9 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 		})
 	}
 
-	if err = rslv.client().Get(ctx, "/v1/health/service/"+name, query, &results); err != nil {
+	serviceName, serviceID := splitNameID(name)
+
+	if err = rslv.client().Get(ctx, "/v1/health/service/"+serviceName, query, &results); err != nil {
 		return
 	}
 
@@ -202,6 +189,19 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 				list[i].RTT = Distance(from, to)
 			}
 		}
+	}
+
+	if len(serviceID) != 0 {
+		i := 0
+
+		for _, e := range list {
+			if _, id := splitNameID(e.ID); id == serviceID {
+				list[i] = e
+				i++
+			}
+		}
+
+		list = list[:i]
 	}
 
 	return
@@ -287,7 +287,7 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 		// TODO: check the error type here and discard things like context
 		// cancellations and timeouts?
 		entry.res, entry.err = lookup(ctx, name)
-		if entry.err != nil && cache.Balancer != nil {
+		if entry.err == nil && cache.Balancer != nil {
 			entry.res = cache.Balancer.Balance(name, entry.res)
 		}
 		entry.mutex.Unlock()
