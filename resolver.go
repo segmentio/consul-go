@@ -54,6 +54,13 @@ type Resolver struct {
 	// agnet to the endpoints. If nil, DefaultTomography is used instead.
 	Tomography *Tomography
 
+	// The balancer is used to reorder the list of endpoints returned by the
+	// resolver when looking up services.
+	//
+	// This field takes precedence over Sort, to use a simple sorting function,
+	// set the value to nil.
+	Balancer Balancer
+
 	// Sort is called to order the list of endpoints returned by the resolver.
 	// Setting this field to nil means no ordering of the endpoints is done.
 	//
@@ -62,6 +69,8 @@ type Resolver struct {
 	// of endpoints, otherwise consecutive calls would likely return the list in
 	// the same order, and picking the first item would result in routing all
 	// traffic to a single instance of the service.
+	//
+	// DEPRECATED: use Balancer instead.
 	Sort func([]Endpoint)
 }
 
@@ -92,12 +101,10 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 	var list []Endpoint
 	var err error
 
-	serviceName, serviceID := splitNameID(name)
-
 	if cache := rslv.Cache; cache != nil {
-		list, err = cache.LookupService(ctx, serviceName, rslv.lookupService)
+		list, err = cache.LookupService(ctx, name, rslv.lookupService)
 	} else {
-		list, err = rslv.lookupService(ctx, serviceName)
+		list, err = rslv.lookupService(ctx, name)
 	}
 
 	if err != nil {
@@ -108,21 +115,10 @@ func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoin
 		list = rslv.Blacklist.Filter(list, time.Now())
 	}
 
-	if rslv.Sort != nil {
+	if rslv.Balancer != nil {
+		list = rslv.Balancer.Balance(name, list)
+	} else if rslv.Sort != nil {
 		rslv.Sort(list)
-	}
-
-	if len(serviceID) != 0 {
-		i := 0
-
-		for _, e := range list {
-			if _, id := splitNameID(e.ID); id == serviceID {
-				list[i] = e
-				i++
-			}
-		}
-
-		list = list[:i]
 	}
 
 	return list, err
@@ -166,7 +162,9 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 		})
 	}
 
-	if err = rslv.client().Get(ctx, "/v1/health/service/"+name, query, &results); err != nil {
+	serviceName, serviceID := splitNameID(name)
+
+	if err = rslv.client().Get(ctx, "/v1/health/service/"+serviceName, query, &results); err != nil {
 		return
 	}
 
@@ -191,6 +189,19 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 				list[i].RTT = Distance(from, to)
 			}
 		}
+	}
+
+	if len(serviceID) != 0 {
+		i := 0
+
+		for _, e := range list {
+			if _, id := splitNameID(e.ID); id == serviceID {
+				list[i] = e
+				i++
+			}
+		}
+
+		list = list[:i]
 	}
 
 	return
@@ -220,7 +231,9 @@ func (rslv *Resolver) tomography() *Tomography {
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
+	Cache:       &ResolverCache{Balancer: defaultCacheBalancer()},
 	Blacklist:   &ResolverBlacklist{},
+	Balancer:    &LoadBalancer{New: func() Balancer { return &RoundRobin{} }},
 	Sort:        WeightedShuffleOnRTT,
 }
 
@@ -253,6 +266,10 @@ type ResolverCache struct {
 	// used.
 	CacheTimeout time.Duration
 
+	// A balancer used by the cache to potentially filter or reorder endpoints
+	// from the resolved names before caching them.
+	Balancer Balancer
+
 	once sync.Once
 	cmap *resolverCacheMap
 }
@@ -270,6 +287,9 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 		// TODO: check the error type here and discard things like context
 		// cancellations and timeouts?
 		entry.res, entry.err = lookup(ctx, name)
+		if entry.err == nil && cache.Balancer != nil {
+			entry.res = cache.Balancer.Balance(name, entry.res)
+		}
 		entry.mutex.Unlock()
 	}
 
