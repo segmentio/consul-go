@@ -158,6 +158,9 @@ type RoundRobin struct {
 // Balance satisfies the Balancer interface.
 func (rr *RoundRobin) Balance(name string, endpoints []Endpoint) []Endpoint {
 	n := len(endpoints)
+	if n == 0 {
+		return endpoints
+	}
 	i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n))
 	return endpoints[i : i+1]
 }
@@ -174,13 +177,11 @@ type Rotator struct {
 
 // Balance satisfies the Balancer interface.
 func (rr *Rotator) Balance(name string, endpoints []Endpoint) []Endpoint {
-	n := len(endpoints)
-	i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n))
-
-	if i != 0 {
-		rotate(endpoints, i)
+	if n := len(endpoints); n != 0 {
+		if i := int(atomic.AddUint64(&rr.offset, 1) % uint64(n)); i != 0 {
+			rotate(endpoints, i)
+		}
 	}
-
 	return endpoints
 }
 

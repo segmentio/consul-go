@@ -81,6 +81,10 @@ func testBalancer(t *testing.T, balancer Balancer) {
 		value int
 	}
 
+	// Ensure that the balance doesn't crash when it's given an empty list of
+	// endpoints.
+	balancer.Balance("empty-service", nil)
+
 	base := generateTestEndpoints(endpointsCount)
 	counters := make([]counter, endpointsCount)
 	for i := range counters {
