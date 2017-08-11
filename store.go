@@ -40,7 +40,7 @@ func (store *Store) Tree(ctx context.Context, prefix string) (keys []string, err
 }
 
 // Walk traverses the keyspace under the given prefix, calling the walk function
-// for each key.
+// and passing each key.
 //
 // If the walk function returns an error the iteration is stopped and the error
 // is returned by Walk.
@@ -61,6 +61,45 @@ func (store *Store) Walk(ctx context.Context, prefix string, walk func(key strin
 
 	for stream.Decode(&key) == nil {
 		if err = walk(store.clean(key)); err != nil {
+			return
+		}
+	}
+
+	err = stream.Err()
+	return
+}
+
+// KeyData is a representation of a key in Consul, which follows the structure
+// documented at https://www.consul.io/api/kv.html#read-key
+type KeyData struct {
+	CreateIndex int64
+	ModifyIndex int64
+	Key         string
+	Flags       int64
+	Value       []byte
+}
+
+// WalkData traverses the keyspace under the given prefix, calling the walk
+// function and passing each key's data
+//
+// If the walk function returns an error the iteration is stopped and the error
+// is returned by WalkData
+func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data KeyData) error) (err error) {
+	var result io.ReadCloser
+	var query = Query{
+		{Name: "recurse", Value: "true"},
+	}
+
+	if _, result, err = store.client().do(ctx, "GET", store.path(prefix), query, nil); err != nil {
+		return
+	}
+	defer result.Close()
+
+	var stream = json.NewStreamDecoder(result)
+	var data KeyData
+	for stream.Decode(&data) == nil {
+		data.Key = store.clean(data.Key)
+		if err = walk(data); err != nil {
 			return
 		}
 	}

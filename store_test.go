@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +23,11 @@ func TestStore(t *testing.T) {
 		{
 			scenario: "write a couple of keys and ensure they show up when walking the key/value store",
 			test:     testWriteAndWalk,
+		},
+
+		{
+			scenario: "write a couple of keys and ensure they show up when walking the key/value store and returning data",
+			test:     testWriteAndWalkData,
 		},
 
 		{
@@ -115,7 +121,54 @@ func testWriteAndWalk(t *testing.T, ctx context.Context, store *Store) {
 	if err != nil {
 		t.Error(err)
 	}
+}
 
+func testWriteAndWalkData(t *testing.T, ctx context.Context, store *Store) {
+	keys := []string{"A/1", "A/2", "B/1", "C/1", "A/3"}
+
+	for i, key := range keys {
+		write(t, ctx, store, key, i, -1)
+	}
+
+	i := 0
+	ref := []string{"A/1", "A/2", "A/3"}
+	err := store.WalkData(ctx, "A", func(data KeyData) error {
+		if data.Key != ref[i] {
+			return fmt.Errorf("bad key at index %d: %q != %q", i, data.Key, ref[i])
+		}
+		if data.Flags != 0 {
+			return fmt.Errorf("unexpected Flags value of %q", data.Flags)
+		}
+		if data.CreateIndex <= 0 {
+			return fmt.Errorf("CreateIndex should be > 0")
+		}
+		if data.ModifyIndex != data.CreateIndex {
+			return fmt.Errorf("ModifyIndex should == CreateIndex")
+		}
+
+		// I blame Brad for the next 10 lines of code
+		kidx := -1
+		for keysi, v := range keys {
+			if v == data.Key {
+				kidx = keysi
+				break
+			}
+		}
+		if kidx == -1 {
+			return fmt.Errorf("This shouldn't happen.")
+		}
+
+		dvi, _ := strconv.Atoi(string(data.Value))
+		if dvi != kidx {
+			return fmt.Errorf("Value should be the index %q, but it is %q", kidx, dvi)
+		}
+
+		i++
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func testWriteAndRead(t *testing.T, ctx context.Context, store *Store) {
