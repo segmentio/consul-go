@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 
@@ -243,13 +242,30 @@ func (store *Store) client() *Client {
 }
 
 func (store *Store) path(key string) string {
-	return path.Join("/v1/kv", store.Keyspace, key)
+	return formatKVPath(store.Keyspace, key)
 }
 
 func (store *Store) clean(key string) string {
 	key = strings.TrimPrefix(key, store.Keyspace)
 	key = strings.TrimPrefix(key, "/")
 	return key
+}
+
+func formatKVPath(prefix, key string) string {
+	joined := strings.Join([]string{"/v1/kv", prefix, key}, "/")
+
+	// collapse slashes
+	out := []rune{}
+	var last rune
+	for _, runeValue := range joined {
+		if runeValue == '/' && last == '/' {
+			continue
+		}
+		out = append(out, runeValue)
+		last = runeValue
+	}
+
+	return string(out)
 }
 
 var (
