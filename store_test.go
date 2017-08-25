@@ -312,4 +312,7 @@ func TestFormatKVPath(t *testing.T) {
 	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/")
 	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/.")
 	assertKVP("/v1/kv/prefix/", "prefix", "../whatever/..")
+
+	// or the prefix dropping below the /v1/kv/ root
+	assertKVP("/v1/kv/prefix/", "../prefix", "")
 }

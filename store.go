@@ -276,7 +276,7 @@ func cleanPath(p string) string {
 }
 
 func formatKVPath(prefix, key string) string {
-	joined := cleanPath("/v1/kv/"+prefix) + "/" + cleanPath(key)
+	joined := cleanPath("/v1/kv") + "/" + cleanPath(prefix) + "/" + cleanPath(key)
 
 	// collapse slashes
 	out := []rune{}
