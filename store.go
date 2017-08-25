@@ -243,13 +243,53 @@ func (store *Store) client() *Client {
 }
 
 func (store *Store) path(key string) string {
-	return path.Join("/v1/kv", store.Keyspace, key)
+	return formatKVPath(store.Keyspace, key)
 }
 
 func (store *Store) clean(key string) string {
 	key = strings.TrimPrefix(key, store.Keyspace)
 	key = strings.TrimPrefix(key, "/")
 	return key
+}
+
+// Our own snowflake cleanPath, derived from net/http/server.go
+func cleanPath(p string) string {
+	if p == "" {
+		return ""
+	}
+
+	// Convert trailing /. to /, so path.Clean doesn't get to it
+	if strings.HasSuffix(p, "/.") {
+		p = p[:len(p)-1]
+	}
+
+	if p[0] != '/' {
+		p = "/" + p
+	}
+	np := path.Clean(p)
+	// path.Clean removes trailing slash except for root;
+	// put the trailing slash back if necessary.
+	if p[len(p)-1] == '/' && np != "/" {
+		np += "/"
+	}
+	return np
+}
+
+func formatKVPath(prefix, key string) string {
+	joined := cleanPath("/v1/kv") + "/" + cleanPath(prefix) + "/" + cleanPath(key)
+
+	// collapse slashes
+	out := []rune{}
+	var last rune
+	for _, runeValue := range joined {
+		if runeValue == '/' && last == '/' {
+			continue
+		}
+		out = append(out, runeValue)
+		last = runeValue
+	}
+
+	return string(out)
 }
 
 var (

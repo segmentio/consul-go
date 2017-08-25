@@ -271,3 +271,48 @@ func write(t *testing.T, ctx context.Context, store *Store, key string, value in
 		t.Fatalf("writing %s=%v failed (WriteValue returned false)", key, value)
 	}
 }
+
+func TestFormatKVPath(t *testing.T) {
+	assertKVP := func(expected, prefix, key string) {
+		got := formatKVPath(prefix, key)
+		if got != expected {
+			t.Errorf("For [prefix:%v, key:%v], expected:%v, got:%v", prefix, key, expected, got)
+		}
+	}
+
+	// collapse slashes
+	assertKVP("/v1/kv/prefix/key/", "//prefix///", "//key/////")
+	assertKVP("/v1/kv/prefix/key", "//prefix///", "//key")
+
+	// handle trailing slashes properly
+	assertKVP("/v1/kv/prefix/key", "prefix", "key")
+	assertKVP("/v1/kv/prefix/key", "/prefix", "/key")
+	assertKVP("/v1/kv/prefix/key/", "/prefix/", "/key/")
+	assertKVP("/v1/kv/prefix/key", "prefix/", "key")
+	assertKVP("/v1/kv/prefix/key/", "prefix/", "key/")
+
+	// empty or slash prefix should always result in trailing slash
+	assertKVP("/v1/kv/", "", "")
+	assertKVP("/v1/kv/", "", "/")
+	assertKVP("/v1/kv/", "/", "")
+	assertKVP("/v1/kv/", "/", "/")
+
+	// prefixes should always result in a trailing slash
+	assertKVP("/v1/kv/prefix/", "/prefix", "")
+	assertKVP("/v1/kv/prefix/", "prefix", "")
+	assertKVP("/v1/kv/prefix/", "prefix/", "")
+	assertKVP("/v1/kv/prefix/", "/prefix/", "")
+	assertKVP("/v1/kv/prefix/", "/prefix", "/")
+	assertKVP("/v1/kv/prefix/", "prefix", "/")
+	assertKVP("/v1/kv/prefix/", "prefix/", "/")
+	assertKVP("/v1/kv/prefix/", "/prefix/", "/")
+
+	// collapse but don't allow going below the prefix
+	assertKVP("/v1/kv/prefix/whatever", "prefix", "../whatever")
+	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/")
+	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/.")
+	assertKVP("/v1/kv/prefix/", "prefix", "../whatever/..")
+
+	// or the prefix dropping below the /v1/kv/ root
+	assertKVP("/v1/kv/prefix/", "../prefix", "")
+}
