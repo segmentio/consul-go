@@ -22,6 +22,9 @@ type Locker struct {
 	// A key prefix to apply to all operations made on this locker.
 	Keyspace string
 
+	// The behavior to used when releasing a lock (default to Release).
+	Behavior SessionBehavior
+
 	// LockDelay is the amount of time that a lock will stay held if it hasn't
 	// been released and the session that was attached to it expired.
 	LockDelay time.Duration
@@ -144,7 +147,7 @@ func (l *Locker) withSession(ctx context.Context, name string, args ...interface
 	return WithSession(ctx, Session{
 		Client:    l.client(),
 		Name:      fmt.Sprintf(name, args...),
-		Behavior:  Release,
+		Behavior:  l.behavior(),
 		LockDelay: lockDelay,
 		TTL:       lockDelay * 2,
 	})
@@ -162,6 +165,13 @@ func (l *Locker) lockDelay() time.Duration {
 		return delay
 	}
 	return 15 * time.Second
+}
+
+func (l *Locker) behavior() SessionBehavior {
+	if behavior := l.Behavior; len(behavior) != 0 {
+		return behavior
+	}
+	return Release
 }
 
 func (l *Locker) prefixKeys(keys []string) []string {
