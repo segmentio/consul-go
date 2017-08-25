@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -251,8 +252,31 @@ func (store *Store) clean(key string) string {
 	return key
 }
 
+// Our own snowflake cleanPath, derived from net/http/server.go
+func cleanPath(p string) string {
+	if p == "" {
+		return ""
+	}
+
+	// Convert trailing /. to /, so path.Clean doesn't get to it
+	if strings.HasSuffix(p, "/.") {
+		p = p[:len(p)-1]
+	}
+
+	if p[0] != '/' {
+		p = "/" + p
+	}
+	np := path.Clean(p)
+	// path.Clean removes trailing slash except for root;
+	// put the trailing slash back if necessary.
+	if p[len(p)-1] == '/' && np != "/" {
+		np += "/"
+	}
+	return np
+}
+
 func formatKVPath(prefix, key string) string {
-	joined := strings.Join([]string{"/v1/kv", prefix, key}, "/")
+	joined := cleanPath("/v1/kv/"+prefix) + "/" + cleanPath(key)
 
 	// collapse slashes
 	out := []rune{}

@@ -307,6 +307,9 @@ func TestFormatKVPath(t *testing.T) {
 	assertKVP("/v1/kv/prefix/", "prefix/", "/")
 	assertKVP("/v1/kv/prefix/", "/prefix/", "/")
 
-	// don't do .. and . collapse
-	assertKVP("/v1/kv/prefix/key/../whatever/.", "prefix", "/key/../whatever/.")
+	// collapse but don't allow going below the prefix
+	assertKVP("/v1/kv/prefix/whatever", "prefix", "../whatever")
+	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/")
+	assertKVP("/v1/kv/prefix/whatever/", "prefix", "../whatever/.")
+	assertKVP("/v1/kv/prefix/", "prefix", "../whatever/..")
 }
