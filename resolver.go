@@ -237,6 +237,12 @@ var DefaultResolver = &Resolver{
 	Sort:        WeightedShuffleOnRTT,
 }
 
+// LookupHost is a wrapper around the default resolver's LookupHost
+// method.
+func LookupHost(ctx context.Context, name string) ([]string, error) {
+	return DefaultResolver.LookupHost(ctx, name)
+}
+
 // LookupService is a wrapper around the default resolver's LookupService
 // method.
 func LookupService(ctx context.Context, name string) ([]Endpoint, error) {
