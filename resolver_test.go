@@ -431,13 +431,53 @@ func testResolverBlacklistCleanup(t *testing.T, blacklist *ResolverBlacklist, en
 		blacklist.Filter(list, now.Add(2*time.Second))
 	}
 
-	blacklist.mutex.Lock()
-
-	if !reflect.DeepEqual(blacklist.addrs, map[string]time.Time{
+	if !reflect.DeepEqual(blacklist.cache(), blacklistCache{
 		"192.168.0.1:8080": now.Add(time.Hour),
 	}) {
 		t.Error("bad blacklist state:", blacklist.addrs)
 	}
+}
 
-	blacklist.mutex.Unlock()
+func BenchmarkResolverBlacklist(b *testing.B) {
+	b.Run("empty", func(b *testing.B) {
+		now := time.Now()
+
+		blacklist := &ResolverBlacklist{}
+
+		b.RunParallel(func(pb *testing.PB) {
+			endpoints := []Endpoint{
+				{ID: "B", Addr: newServiceAddr("127.0.0.1", 1001)},
+				{ID: "C", Addr: newServiceAddr("127.0.0.1", 1002)},
+				{ID: "D", Addr: newServiceAddr("127.0.0.1", 1003)},
+				{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
+			}
+
+			for pb.Next() {
+				blacklist.Filter(endpoints, now)
+			}
+		})
+	})
+
+	b.Run("filled", func(b *testing.B) {
+		now := time.Now()
+		exp := now.Add(time.Minute)
+
+		blacklist := &ResolverBlacklist{}
+		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1002), exp)
+		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), exp)
+		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1005), exp)
+
+		b.RunParallel(func(pb *testing.PB) {
+			endpoints := []Endpoint{
+				{ID: "B", Addr: newServiceAddr("127.0.0.1", 1001)},
+				{ID: "C", Addr: newServiceAddr("127.0.0.1", 1002)},
+				{ID: "D", Addr: newServiceAddr("127.0.0.1", 1003)},
+				{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
+			}
+
+			for pb.Next() {
+				blacklist.Filter(endpoints, now)
+			}
+		})
+	})
 }

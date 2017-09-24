@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // A Resolver is a high-level abstraction on top of the consul service discovery
@@ -458,10 +459,10 @@ func splitNameID(s string) (name string, id string) {
 // name resolution result, with a deadline at which the address blacklist will
 // expire.
 type ResolverBlacklist struct {
-	mutex    sync.RWMutex
-	version  uint64
-	cleaning uint64
-	addrs    map[string]time.Time
+	length   int64          // number of items in the map
+	version  uint32         // counter for cleaning up the resolver map
+	cleaning uint32         // lock to ensure only one goroutine cleans the map
+	addrs    unsafe.Pointer // *blacklistCache
 }
 
 const (
@@ -470,45 +471,44 @@ const (
 
 // Blacklist adds a blacklisted address, which expires and expireAt is reached.
 func (blacklist *ResolverBlacklist) Blacklist(addr net.Addr, expireAt time.Time) {
-	key := addr.String()
-	blacklist.mutex.Lock()
-	if blacklist.addrs == nil {
-		blacklist.addrs = make(map[string]time.Time)
+	atomic.AddInt64(&blacklist.length, 1)
+
+	for {
+		oldCache := blacklist.loadCache()
+		newCache := oldCache.copy()
+		newCache[addr.String()] = expireAt
+
+		if blacklist.compareAndSwapCache(oldCache, &newCache) {
+			break
+		}
 	}
-	blacklist.addrs[key] = expireAt
-	blacklist.mutex.Unlock()
 }
 
 // Filter takes a slice of endpoints and the current time, and returns that
 // same slice trimmed, where all blacklisted addresses have been filtered out.
 func (blacklist *ResolverBlacklist) Filter(endpoints []Endpoint, now time.Time) []Endpoint {
-	version := atomic.AddUint64(&blacklist.version, 1)
+	// In the common case where there is no endpoints in the blacklist, the
+	// code takes this fast non-blocking path.
+	if atomic.LoadInt64(&blacklist.length) == 0 {
+		return endpoints
+	}
 
-	blacklist.mutex.RLock()
-	blackListLength := len(blacklist.addrs)
+	cache := blacklist.cache()
 	endpointsLength := 0
 
-	if blackListLength == 0 {
-		// Fast path, most of the time the black list is expected to be empty,
-		// no need to pay the price of going through the endpoints in this case.
-		endpointsLength = len(endpoints)
-	} else {
-		for i := range endpoints {
-			expireAt, blacklisted := blacklist.addrs[endpoints[i].Addr.String()]
+	for i := range endpoints {
+		expireAt, blacklisted := cache[endpoints[i].Addr.String()]
 
-			if !blacklisted || now.After(expireAt) {
-				endpoints[endpointsLength] = endpoints[i]
-				endpointsLength++
-			}
+		if !blacklisted || now.After(expireAt) {
+			endpoints[endpointsLength] = endpoints[i]
+			endpointsLength++
 		}
 	}
 
-	blacklist.mutex.RUnlock()
-
-	if blackListLength != 0 && (version%resolverBlacklistCleanupInterval) == 0 {
-		if atomic.CompareAndSwapUint64(&blacklist.cleaning, 0, 1) {
+	if version := atomic.AddUint32(&blacklist.version, 1); (version % resolverBlacklistCleanupInterval) == 0 {
+		if atomic.CompareAndSwapUint32(&blacklist.cleaning, 0, 1) {
 			blacklist.cleanup(now)
-			atomic.StoreUint64(&blacklist.cleaning, 0)
+			atomic.StoreUint32(&blacklist.cleaning, 0)
 		}
 	}
 
@@ -516,21 +516,49 @@ func (blacklist *ResolverBlacklist) Filter(endpoints []Endpoint, now time.Time) 
 }
 
 func (blacklist *ResolverBlacklist) cleanup(now time.Time) {
-	blacklist.mutex.RLock()
+	for {
+		deleted := int64(0)
+		oldCache := blacklist.loadCache()
+		newCache := oldCache.copy()
 
-	for addr, expireAt := range blacklist.addrs {
-		if now.After(expireAt) {
-			blacklist.mutex.RUnlock()
-			blacklist.mutex.Lock()
-
-			if expireAt := blacklist.addrs[addr]; now.After(expireAt) {
-				delete(blacklist.addrs, addr)
+		for addr, expireAt := range *oldCache {
+			if now.After(expireAt) {
+				delete(newCache, addr)
+				deleted++
 			}
+		}
 
-			blacklist.mutex.Unlock()
-			blacklist.mutex.RLock()
+		if blacklist.compareAndSwapCache(oldCache, &newCache) {
+			atomic.AddInt64(&blacklist.length, -deleted)
+			break
 		}
 	}
+}
 
-	blacklist.mutex.RUnlock()
+func (blacklist *ResolverBlacklist) cache() blacklistCache {
+	cache := blacklist.loadCache()
+	if cache == nil {
+		return nil
+	}
+	return *cache
+}
+
+func (blacklist *ResolverBlacklist) loadCache() *blacklistCache {
+	return (*blacklistCache)(atomic.LoadPointer(&blacklist.addrs))
+}
+
+func (blacklist *ResolverBlacklist) compareAndSwapCache(old *blacklistCache, new *blacklistCache) bool {
+	return atomic.CompareAndSwapPointer(&blacklist.addrs, unsafe.Pointer(old), unsafe.Pointer(new))
+}
+
+type blacklistCache map[string]time.Time
+
+func (m *blacklistCache) copy() blacklistCache {
+	c := make(blacklistCache)
+	if m != nil {
+		for k, v := range *m {
+			c[k] = v
+		}
+	}
+	return c
 }
