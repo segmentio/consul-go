@@ -367,6 +367,10 @@ func (cache *ResolverCache) compareAndSwap(old *resolverCache, new *resolverCach
 }
 
 func (cache *ResolverCache) update(name string, entry *resolverEntry) {
+	if b := cache.Balancer; b != nil {
+		entry.res = b.Balance(name, entry.res)
+	}
+
 	for {
 		oldCache := cache.load()
 		newCache := oldCache.copy()
