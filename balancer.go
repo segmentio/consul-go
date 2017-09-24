@@ -4,9 +4,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // Balancer is the interface implemented by types that provides load balancing
@@ -70,15 +70,9 @@ type LoadBalancer struct {
 	// will panic.
 	New func() Balancer
 
-	mutex    sync.RWMutex
 	version  uint64
 	cleaning uint64
-	services map[string]*loadBalancerEntry
-}
-
-type loadBalancerEntry struct {
-	Balancer
-	version uint64
+	services unsafe.Pointer // *balancerCache
 }
 
 const (
@@ -87,58 +81,77 @@ const (
 
 // Balance satisfies the Balancer interface.
 func (lb *LoadBalancer) Balance(name string, endpoints []Endpoint) []Endpoint {
-	version := atomic.AddUint64(&lb.version, 1)
-
-	lb.mutex.RLock()
-	entry := lb.services[name]
-	lb.mutex.RUnlock()
+	entry := lb.cache()[name]
 
 	if entry == nil {
-		entry = &loadBalancerEntry{
+		// Slow path: add the entry to the cache and potentially run a cleanup
+		// operation.
+		version := atomic.AddUint64(&lb.version, 1)
+
+		entry = &balancerEntry{
 			Balancer: lb.New(),
 			version:  version,
 		}
-		lb.mutex.Lock()
-		if lb.services == nil {
-			lb.services = make(map[string]*loadBalancerEntry)
+
+		for {
+			oldCache := lb.loadCache()
+			newCache := oldCache.copy()
+			newCache[name] = entry
+
+			if lb.compareAndSwapCache(oldCache, &newCache) {
+				break
+			}
 		}
-		// Don't re-check if the service already exists, worst case we reset the
-		// balancer for that service which is fine, in most case it'll make the
-		// synchronized section a bit shorter.
-		lb.services[name] = entry
-		lb.mutex.Unlock()
+
+		if (version % loadBalancerCleanupInterval) == 0 {
+			if atomic.CompareAndSwapUint64(&lb.cleaning, 0, 1) {
+				lb.cleanup(version)
+				atomic.StoreUint64(&lb.cleaning, 0)
+			}
+		}
 	}
 
-	endpoints = entry.Balance(name, endpoints)
-
-	if (version % loadBalancerCleanupInterval) == 0 {
-		if atomic.CompareAndSwapUint64(&lb.cleaning, 0, 1) {
-			lb.cleanup(version)
-			atomic.StoreUint64(&lb.cleaning, 0)
-		}
-	}
-
-	return endpoints
+	// Make the entry as used on the current version of the load balancer cache.
+	// It's OK to be eventually consistent here, this is only used to do memory
+	// management and evict old entries, if it's off by 1 or 2 it won't make a
+	// difference.
+	atomic.StoreUint64(&entry.version, atomic.LoadUint64(&lb.version))
+	return entry.Balance(name, endpoints)
 }
 
 func (lb *LoadBalancer) cleanup(version uint64) {
-	lb.mutex.RLock()
+	minVersion := version - loadBalancerCleanupInterval
 
-	for name, entry := range lb.services {
-		if diffU64(version, entry.version) > loadBalancerCleanupInterval {
-			lb.mutex.RUnlock() // wish there was a way to promote to a write-lock
-			lb.mutex.Lock()
+	for {
+		oldCache := lb.loadCache()
+		newCache := oldCache.copy()
 
-			if diffU64(version, entry.version) > loadBalancerCleanupInterval {
-				delete(lb.services, name)
+		for name, entry := range newCache {
+			if entry.version < minVersion {
+				delete(newCache, name)
 			}
+		}
 
-			lb.mutex.Unlock()
-			lb.mutex.RLock()
+		if lb.compareAndSwapCache(oldCache, &newCache) {
+			break
 		}
 	}
+}
 
-	lb.mutex.RUnlock()
+func (lb *LoadBalancer) cache() balancerCache {
+	cache := lb.loadCache()
+	if cache == nil {
+		return nil
+	}
+	return *cache
+}
+
+func (lb *LoadBalancer) loadCache() *balancerCache {
+	return (*balancerCache)(atomic.LoadPointer(&lb.services))
+}
+
+func (lb *LoadBalancer) compareAndSwapCache(oldCache *balancerCache, newCache *balancerCache) bool {
+	return atomic.CompareAndSwapPointer(&lb.services, unsafe.Pointer(oldCache), unsafe.Pointer(newCache))
 }
 
 func diffU64(high uint64, low uint64) uint64 {
@@ -146,6 +159,23 @@ func diffU64(high uint64, low uint64) uint64 {
 		return 0
 	}
 	return high - low
+}
+
+type balancerCache map[string]*balancerEntry
+
+func (b *balancerCache) copy() balancerCache {
+	c := make(balancerCache)
+	if b != nil {
+		for k, v := range *b {
+			c[k] = v
+		}
+	}
+	return c
+}
+
+type balancerEntry struct {
+	Balancer
+	version uint64
 }
 
 // RoundRobin is the implementation of a simple load balancing algorithms which
