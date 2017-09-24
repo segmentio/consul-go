@@ -293,8 +293,8 @@ func TestResolverCache(t *testing.T) {
 			return list, nil
 		}
 
-		// Loop for 30ms, there should 4 cache misses due to prefetching at
-		// 0ms, 9ms, 19ms, and 29ms.
+		i := 0
+
 		for now, exp := time.Now(), time.Now().Add(30*time.Millisecond); now.Before(exp); now = time.Now() {
 			addrs, err := cache.LookupService(context.Background(), "", lookup)
 
@@ -305,10 +305,11 @@ func TestResolverCache(t *testing.T) {
 			if !reflect.DeepEqual(addrs, list) {
 				t.Error("bad address list returned by service lookup:", err)
 			}
+			i++
 		}
 
-		if n := atomic.LoadInt32(&miss); n != 4 {
-			t.Error("bad number of cache misses:", n)
+		if n := atomic.LoadInt32(&miss); n > 8 {
+			t.Errorf("too many cache misses: %d/%d", n, i)
 		}
 	})
 
@@ -342,6 +343,30 @@ func TestResolverCache(t *testing.T) {
 
 		if n := atomic.LoadInt32(&miss); n != 4 {
 			t.Error("bad number of cache misses:", n)
+		}
+	})
+}
+
+func BenchmarkResolverCache(b *testing.B) {
+	list := []Endpoint{
+		{Addr: newServiceAddr("192.168.0.1", 4242)},
+		{Addr: newServiceAddr("192.168.0.2", 4242)},
+		{Addr: newServiceAddr("192.168.0.3", 4242)},
+	}
+
+	cache := &ResolverCache{
+		CacheTimeout: 10 * time.Millisecond,
+	}
+
+	lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {
+		return list, nil
+	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		ctx := context.Background()
+
+		for pb.Next() {
+			cache.LookupService(ctx, "", lookup)
 		}
 	})
 }
