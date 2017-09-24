@@ -3,7 +3,6 @@ package consul
 import (
 	"context"
 	"net"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -277,32 +276,41 @@ type ResolverCache struct {
 	// from the resolved names before caching them.
 	Balancer Balancer
 
-	once sync.Once
-	cmap *resolverCacheMap
+	// Pointer to *resolverCache where cached service endpoints are read from.
+	// The field is manipulated using atomic operations to prevent cache
+	// updates from ever blocking service lookups.
+	cmap unsafe.Pointer
+
+	// Version of the resolver, incremented every time it gets updated.
+	version uint64
+
+	// This map keeps track of all in-flight resolution to avoid making more
+	// than one concurrent request to the actual resolver.
+	mutex    sync.Mutex
+	inflight map[string](chan struct{})
 }
+
+const (
+	resolverCacheCleanupInterval = 1000
+)
 
 // LookupService resolves a service name by fetching the address list from the
 // cache, or calling lookup if the name did not exist.
 func (cache *ResolverCache) LookupService(ctx context.Context, name string, lookup LookupServiceFunc) ([]Endpoint, error) {
-	cache.once.Do(cache.init)
-
-	now := time.Now()
 	cacheTimeout := cache.cacheTimeout()
-	entry, locked := cache.cmap.lookup(name, now, now.Add(cacheTimeout))
+	entry := cache.cache()[name]
+	now := time.Now()
 
-	if locked {
-		// TODO: check the error type here and discard things like context
-		// cancellations and timeouts?
-		entry.res, entry.err = lookup(ctx, name)
-		if entry.err == nil && cache.Balancer != nil {
-			entry.res = cache.Balancer.Balance(name, entry.res)
+	for entry == nil || now.After(entry.expireAt) {
+		var err error
+		// Slow path: when the entry doesn't exist or was expired the goroutines
+		// that concurrently attempt to resolve the same service name will sync
+		// on the inflight map to make a single call to the lookup function and
+		// udpate the cache.
+		if entry, err = cache.lookup(ctx, name, lookup); err != nil {
+			return nil, err
 		}
-		entry.mutex.Unlock()
 	}
-
-	entry.mutex.RLock()
-	res, err, expireAt := entry.res, entry.err, entry.expireAt
-	entry.mutex.RUnlock()
 
 	// To reduce the chances of getting cache misses on expired entries we
 	// prefetch the updated list of addresses when we're getting close to the
@@ -310,18 +318,19 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	// the address list completes before the cleanup goroutine gets rid of the
 	// cache entry, but it has the advantage of being a fully non-blocking
 	// approach.
-	if now.After(expireAt.Add(-cacheTimeout / 10)) {
-		if atomic.CompareAndSwapUint32(&entry.lock, 0, 1) {
-			res, err := lookup(ctx, name)
-			exp := time.Now().Add(cacheTimeout)
-
-			entry.mutex.Lock()
-			entry.res = res
-			entry.err = err
-			entry.expireAt = exp
-			entry.mutex.Unlock()
-
-			atomic.StoreUint32(&entry.lock, 0)
+	if entry.expireAt.Sub(now) <= (cacheTimeout / 10) {
+		// Attempt to acquire the entry's lock so only a single goroutine
+		// prefetches the new value. The entry is not unlocked on purpose so
+		// we don't endup hammering the backend if an error occurs.
+		if entry.tryLock() {
+			// Only proactively update the cache entry if there was no error.
+			if res, err := lookup(ctx, name); err != nil {
+				cache.update(name, &resolverEntry{
+					res:      res,
+					err:      err,
+					expireAt: time.Now().Add(cacheTimeout),
+				})
+			}
 		}
 	}
 
@@ -329,21 +338,9 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	// method. Otherwise it could make changes that modify the cache's internal
 	// memory, which would cause races and unexpected behaviors between calls to
 	// the LookupService method.
-	list := make([]Endpoint, len(res))
-	copy(list, res)
-	return list, err
-}
-
-func (cache *ResolverCache) init() {
-	cache.cmap = &resolverCacheMap{
-		entries: make(map[string]*resolverCacheEntry),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	runtime.SetFinalizer(cache, func(_ *ResolverCache) { cancel() })
-
-	interval := cache.cacheTimeout() / 2
-	go cache.cmap.autoDeleteExpired(ctx, interval)
+	list := make([]Endpoint, len(entry.res))
+	copy(list, entry.res)
+	return list, entry.err
 }
 
 func (cache *ResolverCache) cacheTimeout() time.Duration {
@@ -353,96 +350,140 @@ func (cache *ResolverCache) cacheTimeout() time.Duration {
 	return 1 * time.Second
 }
 
-type resolverCacheMap struct {
-	mutex   sync.RWMutex
-	entries map[string]*resolverCacheEntry
+func (cache *ResolverCache) cache() resolverCache {
+	cmap := cache.load()
+	if cmap == nil {
+		return nil
+	}
+	return *cmap
 }
 
-type resolverCacheEntry struct {
-	mutex    sync.RWMutex
-	lock     uint32
-	name     string
+func (cache *ResolverCache) load() *resolverCache {
+	return (*resolverCache)(atomic.LoadPointer(&cache.cmap))
+}
+
+func (cache *ResolverCache) compareAndSwap(old *resolverCache, new *resolverCache) bool {
+	return atomic.CompareAndSwapPointer(&cache.cmap, unsafe.Pointer(old), unsafe.Pointer(new))
+}
+
+func (cache *ResolverCache) update(name string, entry *resolverEntry) {
+	for {
+		oldCache := cache.load()
+		newCache := oldCache.copy()
+		newCache[name] = entry
+
+		if cache.compareAndSwap(oldCache, &newCache) {
+			break
+		}
+	}
+
+	if (atomic.AddUint64(&cache.version, 1) % resolverCacheCleanupInterval) == 0 {
+		cache.cleanup()
+	}
+}
+
+func (cache *ResolverCache) cleanup() {
+	for {
+		oldCache := cache.load()
+		newCache := oldCache.copy()
+		now := time.Now()
+
+		for name, entry := range newCache {
+			if now.After(entry.expireAt) {
+				delete(newCache, name)
+			}
+		}
+
+		if cache.compareAndSwap(oldCache, &newCache) {
+			break
+		}
+	}
+}
+
+func (cache *ResolverCache) lookup(ctx context.Context, name string, lookup LookupServiceFunc) (*resolverEntry, error) {
+	cache.mutex.Lock()
+	ch, ok := cache.inflight[name]
+	if !ok {
+		if cache.inflight == nil {
+			cache.inflight = make(map[string](chan struct{}))
+		}
+		ch = make(chan struct{})
+		cache.inflight[name] = ch
+	}
+	cache.mutex.Unlock()
+
+	if ok {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return cache.cache()[name], nil
+	}
+
+	defer func() {
+		cache.mutex.Lock()
+		close(ch)
+		delete(cache.inflight, name)
+		cache.mutex.Unlock()
+	}()
+
+	res, err := lookup(ctx, name)
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	entry := &resolverEntry{
+		res:      res,
+		err:      err,
+		expireAt: time.Now().Add(cache.cacheTimeout()),
+	}
+	cache.update(name, entry)
+	return entry, nil
+}
+
+type resolverCache map[string]*resolverEntry
+
+func (cache *resolverCache) add(name string, entry *resolverEntry) *resolverCache {
+	copy := cache.copy()
+	copy[name] = entry
+	return &copy
+}
+
+func (cache *resolverCache) copy() resolverCache {
+	copy := make(resolverCache)
+	if cache != nil {
+		for k, v := range *cache {
+			copy[k] = v
+		}
+	}
+	return copy
+}
+
+type resolverEntry struct {
+	// Immutable fields, cache entries are replaced when they have to change.
 	res      []Endpoint
 	err      error
 	expireAt time.Time
+
+	// Lock used to ensure that only a single goroutine takes care of refreshing
+	// the cache entry before it expires.
+	lock uint32
+
+	// Atomically incremented each time the entry is used. The cleanup process
+	// uses lastVersion to identify which entries need to be cleared out of the
+	// cache (if version == lastVersion, the entry wasn't used).
+	version     uint32
+	lastVersion uint32
 }
 
-func (cmap *resolverCacheMap) lookup(name string, now time.Time, exp time.Time) (entry *resolverCacheEntry, locked bool) {
-	cmap.mutex.RLock()
-	entry = cmap.entries[name]
-	cmap.mutex.RUnlock()
-
-	if entry == nil {
-		cmap.mutex.Lock()
-
-		if entry = cmap.entries[name]; entry == nil {
-			entry, locked = &resolverCacheEntry{name: name, expireAt: exp}, true
-			entry.mutex.Lock()
-			cmap.entries[name] = entry
-		}
-
-		cmap.mutex.Unlock()
-	}
-
-	return
+func (entry *resolverEntry) tryLock() bool {
+	return atomic.CompareAndSwapUint32(&entry.lock, 0, 1)
 }
 
-func (cmap *resolverCacheMap) delete(entry *resolverCacheEntry) {
-	cmap.mutex.Lock()
-
-	if cmap.entries[entry.name] == entry {
-		delete(cmap.entries, entry.name)
-	}
-
-	cmap.mutex.Unlock()
-}
-
-func (cmap *resolverCacheMap) autoDeleteExpired(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case now := <-ticker.C:
-			cmap.deleteExpired(now)
-		}
-	}
-}
-
-func (cmap *resolverCacheMap) deleteExpired(now time.Time) {
-	for _, entry := range cmap.listExpired(now) {
-		cmap.delete(entry)
-	}
-}
-
-func (cmap *resolverCacheMap) listExpired(now time.Time) []*resolverCacheEntry {
-	entries := cmap.list()
-	i := 0
-
-	for _, entry := range entries {
-		entries[i] = entry
-		entry.mutex.RLock()
-		if now.After(entry.expireAt) {
-			i++
-		}
-		entry.mutex.RUnlock()
-	}
-
-	return entries[:i]
-}
-
-func (cmap *resolverCacheMap) list() []*resolverCacheEntry {
-	cmap.mutex.RLock()
-	entries := make([]*resolverCacheEntry, 0, len(cmap.entries))
-
-	for _, entry := range cmap.entries {
-		entries = append(entries, entry)
-	}
-
-	cmap.mutex.RUnlock()
-	return entries
+func (entry *resolverEntry) unlock() {
+	atomic.StoreUint32(&entry.lock, 0)
 }
 
 func splitNameID(s string) (name string, id string) {
