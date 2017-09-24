@@ -470,12 +470,6 @@ type resolverEntry struct {
 	// Lock used to ensure that only a single goroutine takes care of refreshing
 	// the cache entry before it expires.
 	lock uint32
-
-	// Atomically incremented each time the entry is used. The cleanup process
-	// uses lastVersion to identify which entries need to be cleared out of the
-	// cache (if version == lastVersion, the entry wasn't used).
-	version     uint32
-	lastVersion uint32
 }
 
 func (entry *resolverEntry) tryLock() bool {
