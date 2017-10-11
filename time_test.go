@@ -13,3 +13,13 @@ func TestSeconds(t *testing.T) {
 		t.Error(s)
 	}
 }
+
+func TestFromSeconds(t *testing.T) {
+	if d := fromSeconds("30s"); d != 30*time.Second {
+		t.Error("duration should be 30 seconds:", d.Seconds())
+	}
+
+	if d := fromSeconds("15000000000"); d != 15*time.Second {
+		t.Error("duration should be 15 seconds:", d.Seconds())
+	}
+}

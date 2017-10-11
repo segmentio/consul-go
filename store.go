@@ -77,6 +77,7 @@ type KeyData struct {
 	Key         string
 	Flags       int64
 	Value       []byte
+	Session     SessionID
 }
 
 // WalkData traverses the keyspace under the given prefix, calling the walk
@@ -232,6 +233,73 @@ func (store *Store) Delete(ctx context.Context, prefix string, index int64) (ok 
 	}
 
 	err = store.client().Delete(ctx, store.path(prefix), query, &ok)
+	return
+}
+
+// Session return the session used to lock the given key. It returns an error
+// if the key is not locked or does not exist.
+func (store *Store) Session(ctx context.Context, key string) (sess Session, err error) {
+	var keyData KeyData
+	if keyData, err = store.readKeyData(ctx, key); err != nil {
+		return
+	}
+
+	if len(keyData.Session) == 0 {
+		err = fmt.Errorf("key %s is not locked", key)
+		return
+	}
+
+	var res io.ReadCloser
+	var configs []sessionConfig
+
+	path := "/v1/session/info/" + string(keyData.Session)
+	if _, res, err = store.client().do(ctx, "GET", path, nil, nil); err != nil {
+		return
+	}
+	defer res.Close()
+
+	dec := json.NewDecoder(res)
+	if err = dec.Decode(&configs); err != nil {
+		return
+	}
+
+	if len(configs) == 0 {
+		err = fmt.Errorf("no session data for key %s", key)
+		return
+	}
+
+	config := configs[0]
+	sess = Session{
+		Client:    store.client(),
+		ID:        keyData.Session,
+		Name:      config.Name,
+		Behavior:  SessionBehavior(config.Behavior),
+		LockDelay: fromSeconds(config.LockDelay),
+		TTL:       fromSeconds(config.TTL),
+	}
+	return
+}
+
+func (store *Store) readKeyData(ctx context.Context, key string) (keyData KeyData, err error) {
+	var res io.ReadCloser
+	if _, res, err = store.client().do(ctx, "GET", store.path(key), nil, nil); err != nil {
+		return
+	}
+	defer res.Close()
+
+	var meta []KeyData
+
+	dec := json.NewDecoder(res)
+	if err = dec.Decode(&meta); err != nil {
+		return
+	}
+
+	if len(meta) == 0 {
+		err = fmt.Errorf("no metadata for key %s", key)
+		return
+	}
+
+	keyData = meta[0]
 	return
 }
 
