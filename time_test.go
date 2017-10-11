@@ -22,4 +22,8 @@ func TestFromSeconds(t *testing.T) {
 	if d := fromSeconds("15000000000"); d != 15*time.Second {
 		t.Error("duration should be 15 seconds:", d.Seconds())
 	}
+
+	if d := fromSeconds("1.5e+10"); d != 15*time.Second {
+		t.Error("duration should be 15 seconds:", d.Seconds())
+	}
 }

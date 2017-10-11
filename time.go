@@ -15,8 +15,8 @@ func seconds(d time.Duration) string {
 func fromSeconds(v string) time.Duration {
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		i, _ := strconv.ParseInt(v, 10, 64)
-		d = time.Duration(i)
+		f, _ := strconv.ParseFloat(v, 64)
+		d = time.Duration(f)
 	}
 	return d
 }
