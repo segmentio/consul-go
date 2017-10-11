@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"fmt"
+	"path"
 	"reflect"
 	"strconv"
 	"sync/atomic"
@@ -53,6 +54,14 @@ func TestStore(t *testing.T) {
 		{
 			scenario: "writing a locked key while passing the lock context should succeed",
 			test:     testWriteLockedKeySuccess,
+		},
+		{
+			scenario: "should read a session from a locked key",
+			test:     testSessionSuccess,
+		},
+		{
+			scenario: "read a session from a not locked key should fail",
+			test:     testSessionFailure,
 		},
 	}
 
@@ -270,6 +279,31 @@ func write(t *testing.T, ctx context.Context, store *Store, key string, value in
 	} else if !ok {
 		t.Fatalf("writing %s=%v failed (WriteValue returned false)", key, value)
 	}
+}
+
+func testSessionSuccess(t *testing.T, ctx context.Context, store *Store) {
+	key := "foo/lock"
+	lock, unlock := TryLockOne(ctx, path.Join(store.Keyspace, key))
+	defer unlock()
+
+	if err := lock.Err(); err != nil {
+		t.Error(err)
+	}
+
+	_, err := store.Session(ctx, key)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func testSessionFailure(t *testing.T, ctx context.Context, store *Store) {
+	write(t, ctx, store, "bar/lock", "bar", -1)
+
+	_, err := store.Session(ctx, "bar/lock")
+	if err == nil {
+		t.Fatal("err should not be nil")
+	}
+	t.Log(err)
 }
 
 func TestFormatKVPath(t *testing.T) {

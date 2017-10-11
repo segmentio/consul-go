@@ -77,6 +77,7 @@ type KeyData struct {
 	Key         string
 	Flags       int64
 	Value       []byte
+	Session     SessionID
 }
 
 // WalkData traverses the keyspace under the given prefix, calling the walk
@@ -232,6 +233,61 @@ func (store *Store) Delete(ctx context.Context, prefix string, index int64) (ok 
 	}
 
 	err = store.client().Delete(ctx, store.path(prefix), query, &ok)
+	return
+}
+
+// Session return the session used to lock the given key. It returns an error
+// if the key is not locked or does not exist.
+func (store *Store) Session(ctx context.Context, key string) (session Session, err error) {
+	var keyData KeyData
+
+	if keyData, err = store.readKeyData(ctx, key); err != nil {
+		return
+	}
+
+	if len(keyData.Session) == 0 {
+		err = fmt.Errorf("key %s is not locked", key)
+		return
+	}
+
+	var client = store.client()
+	var configs []sessionConfig
+	var path = "/v1/session/info/" + string(keyData.Session)
+
+	if err = client.Get(ctx, path, nil, &configs); err != nil {
+		return
+	}
+
+	if len(configs) == 0 {
+		err = fmt.Errorf("key %s is not locked", key)
+		return
+	}
+
+	config := configs[0]
+	session = Session{
+		Client:    client,
+		ID:        keyData.Session,
+		Name:      config.Name,
+		Behavior:  SessionBehavior(config.Behavior),
+		LockDelay: fromSeconds(config.LockDelay),
+		TTL:       fromSeconds(config.TTL),
+	}
+	return
+}
+
+func (store *Store) readKeyData(ctx context.Context, key string) (keyData KeyData, err error) {
+	var meta []KeyData
+
+	if err = store.client().Get(ctx, store.path(key), nil, &meta); err != nil {
+		return
+	}
+
+	if len(meta) == 0 {
+		err = fmt.Errorf("key %s does not exist", key)
+		return
+	}
+
+	keyData = meta[0]
 	return
 }
 
