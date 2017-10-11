@@ -287,12 +287,12 @@ func testSessionSuccess(t *testing.T, ctx context.Context, store *Store) {
 	defer unlock()
 
 	if err := lock.Err(); err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	_, err := store.Session(ctx, key)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 }
 

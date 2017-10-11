@@ -238,8 +238,9 @@ func (store *Store) Delete(ctx context.Context, prefix string, index int64) (ok 
 
 // Session return the session used to lock the given key. It returns an error
 // if the key is not locked or does not exist.
-func (store *Store) Session(ctx context.Context, key string) (sess Session, err error) {
+func (store *Store) Session(ctx context.Context, key string) (session Session, err error) {
 	var keyData KeyData
+
 	if keyData, err = store.readKeyData(ctx, key); err != nil {
 		return
 	}
@@ -249,28 +250,22 @@ func (store *Store) Session(ctx context.Context, key string) (sess Session, err 
 		return
 	}
 
-	var res io.ReadCloser
+	var client = store.client()
 	var configs []sessionConfig
+	var path = "/v1/session/info/" + string(keyData.Session)
 
-	path := "/v1/session/info/" + string(keyData.Session)
-	if _, res, err = store.client().do(ctx, "GET", path, nil, nil); err != nil {
-		return
-	}
-	defer res.Close()
-
-	dec := json.NewDecoder(res)
-	if err = dec.Decode(&configs); err != nil {
+	if err = client.Get(ctx, path, nil, &configs); err != nil {
 		return
 	}
 
 	if len(configs) == 0 {
-		err = fmt.Errorf("no session data for key %s", key)
+		err = fmt.Errorf("key %s is not locked", key)
 		return
 	}
 
 	config := configs[0]
-	sess = Session{
-		Client:    store.client(),
+	session = Session{
+		Client:    client,
 		ID:        keyData.Session,
 		Name:      config.Name,
 		Behavior:  SessionBehavior(config.Behavior),
@@ -281,21 +276,14 @@ func (store *Store) Session(ctx context.Context, key string) (sess Session, err 
 }
 
 func (store *Store) readKeyData(ctx context.Context, key string) (keyData KeyData, err error) {
-	var res io.ReadCloser
-	if _, res, err = store.client().do(ctx, "GET", store.path(key), nil, nil); err != nil {
-		return
-	}
-	defer res.Close()
-
 	var meta []KeyData
 
-	dec := json.NewDecoder(res)
-	if err = dec.Decode(&meta); err != nil {
+	if err = store.client().Get(ctx, store.path(key), nil, &meta); err != nil {
 		return
 	}
 
 	if len(meta) == 0 {
-		err = fmt.Errorf("no metadata for key %s", key)
+		err = fmt.Errorf("key %s does not exist", key)
 		return
 	}
 
