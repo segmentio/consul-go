@@ -1,0 +1,103 @@
+package consul
+
+import (
+	"context"
+	"net/http"
+	"testing"
+	"time"
+)
+
+func TestWatchPrefix(t *testing.T) {
+	ctx := context.Background()
+	err := DefaultClient.Put(ctx, "/v1/kv/test1/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	res := []KeyData{}
+	skipFirst := true
+
+	go WatchPrefix(ctx, "test1/key", func(d []KeyData, err error) {
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		res = d
+		close(ch)
+	})
+
+	// Give time for the handler to setup
+	time.Sleep(10 * time.Millisecond)
+	err = DefaultClient.Put(ctx, "/v1/kv/test1/key", nil, "narg", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-ch
+	if string(res[0].Value) != "\"narg\"" {
+		t.Errorf("watch should return updated value. exp: %v, act: %v", "narg", string(res[0].Value))
+	}
+}
+
+func TestWatch(t *testing.T) {
+	ctx := context.Background()
+	err := DefaultClient.Put(ctx, "/v1/kv/test2/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := KeyData{}
+	ch := make(chan struct{})
+	skipFirst := true
+	go Watch(ctx, "test2/key", func(d []KeyData, err error) {
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		res = d[0]
+		close(ch)
+	})
+	// Give time for the handler to setup
+	time.Sleep(10 * time.Millisecond)
+	err = DefaultClient.Put(ctx, "/v1/kv/test2/key", nil, "narg", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-ch
+	if string(res.Value) != "\"narg\"" {
+		t.Errorf("watch should return updated value. exp: %v, act: %v", "narg", string(res.Value))
+	}
+}
+
+func TestWatchTimeoutMaxAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := DefaultClient.Put(ctx, "/v1/kv/test3/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	skipFirst := true
+	ts := &http.Transport{
+		ResponseHeaderTimeout: 100 * time.Microsecond,
+	}
+	c := &Client{
+		Transport: ts,
+	}
+	w := &Watcher{Client: c, MaxAttempts: 10}
+	go w.Watch(ctx, "test3/key", func(d []KeyData, err error) {
+		// We should only see this function 2x: first for initialization,
+		// then the timeout.  we never trigger the watch and all the errors
+		// are temporary
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		if ev, ok := err.(interface {
+			Temporary() bool
+		}); !ok || !ev.Temporary() {
+			t.Errorf("Expected Temporary (timeout) error but got: %v", err)
+		}
+		cancel()
+		close(ch)
+	})
+	<-ch
+}
