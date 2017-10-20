@@ -231,7 +231,7 @@ func (rslv *Resolver) tomography() *Tomography {
 // DefaultResolver is the Resolver used by a Dialer when non has been specified.
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
-	Cache:       &ResolverCache{Balancer: defaultCacheBalancer()},
+	Cache:       &ResolverCache{Balancer: MultiBalancer(defaultCacheBalancer(), &Shuffler{})},
 	Blacklist:   &ResolverBlacklist{},
 	Balancer:    &LoadBalancer{New: func() Balancer { return &RoundRobin{} }},
 	Sort:        WeightedShuffleOnRTT,
