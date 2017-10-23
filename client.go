@@ -201,7 +201,8 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 	}
 
 	res.Body.Close()
-	err = fmt.Errorf("%s %s: %s", method, url, res.Status)
+
+	err = newRequestError(method, url, res)
 	return
 }
 
