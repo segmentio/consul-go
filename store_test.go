@@ -313,15 +313,15 @@ func testSessionFailure(t *testing.T, ctx context.Context, store *Store) {
 
 func testWalkFromUnsetKey(t *testing.T, ctx context.Context, store *Store) {
 	err := store.Walk(ctx, "foo/bar/kada/bra", func(key string) error {
-		return errors.New("should to walk through " + key)
+		return errors.New("the Walk callback was called for a key that did not exist")
 	})
 
 	notFound, ok := err.(errNotFound)
 	if !ok {
-		t.Error("error should be a not found error")
+		t.Error("the error returned doesn't satisfies the errNotFound inteface")
 	}
 	if !notFound.NotFound() {
-		t.Error("NotFound() should return true")
+		t.Error("NotFound() does not return true")
 	}
 }
 
