@@ -6,35 +6,23 @@ import (
 	"net/url"
 )
 
-// IsNotFound reports whether the error is a not found error.
-func IsNotFound(err error) bool {
-	if nf, ok := err.(notFound); ok {
-		return nf.NotFound()
-	}
-	return false
-}
-
-type notFound interface {
-	NotFound() bool
-}
-
-type baseError struct {
+type httpError struct {
 	method     string
 	url        *url.URL
 	status     string
 	statusCode int
 }
 
-func (e *baseError) Error() string {
+func (e *httpError) Error() string {
 	return fmt.Sprintf("%s %s: %s", e.method, e.url, e.status)
 }
 
-func (e *baseError) NotFound() bool {
-	return e.statusCode == 404
+func (e *httpError) NotFound() bool {
+	return e.statusCode == http.StatusNotFound
 }
 
-func newRequestError(method string, u *url.URL, res *http.Response) error {
-	return &baseError{
+func newHTTPError(method string, u *url.URL, res *http.Response) error {
+	return &httpError{
 		method:     method,
 		url:        u,
 		status:     res.Status,

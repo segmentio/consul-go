@@ -2,6 +2,7 @@ package consul
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"reflect"
@@ -62,6 +63,10 @@ func TestStore(t *testing.T) {
 		{
 			scenario: "read a session from a not locked key should fail",
 			test:     testSessionFailure,
+		},
+		{
+			scenario: "walk from a not set key should return a not found error",
+			test:     testWalkFromUnsetKey,
 		},
 	}
 
@@ -304,6 +309,24 @@ func testSessionFailure(t *testing.T, ctx context.Context, store *Store) {
 		t.Fatal("err should not be nil")
 	}
 	t.Log(err)
+}
+
+func testWalkFromUnsetKey(t *testing.T, ctx context.Context, store *Store) {
+	err := store.Walk(ctx, "foo/bar/kada/bra", func(key string) error {
+		return errors.New("should to walk through " + key)
+	})
+
+	notFound, ok := err.(errNotFound)
+	if !ok {
+		t.Error("error should be a not found error")
+	}
+	if !notFound.NotFound() {
+		t.Error("NotFound() should return true")
+	}
+}
+
+type errNotFound interface {
+	NotFound() bool
 }
 
 func TestFormatKVPath(t *testing.T) {

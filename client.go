@@ -202,7 +202,7 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 
 	res.Body.Close()
 
-	err = newRequestError(method, url, res)
+	err = newHTTPError(method, url, res)
 	return
 }
 
