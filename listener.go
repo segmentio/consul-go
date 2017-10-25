@@ -76,8 +76,22 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 	if err != nil {
 		return nil, err
 	}
+	lstn, err = l.Register(ctx, lstn)
+	if err != nil {
+		lstn.Close()
+		lstn = nil
+	}
+	return lstn, err
+}
 
-	service := serviceConfig{
+// Register registers the given listener to consul and returns a decorated
+// version of it which deregisters when the service from consul when it's
+// closed.
+//
+// The given listener is not closed when registration fails.
+func (l *Listener) Register(ctx context.Context, lstn net.Listener) (net.Listener, error) {
+	var err error
+	var service = serviceConfig{
 		ID:                l.ServiceID,
 		Name:              l.ServiceName,
 		Tags:              l.ServiceTags,
@@ -101,7 +115,7 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 		service.Port, err = strconv.Atoi(port)
 
 		if err != nil {
-			err = fmt.Errorf("bad port number in network address %s://%s", network, address)
+			err = fmt.Errorf("bad port number in network address %s", service.Address)
 		}
 
 	} else {
@@ -123,7 +137,6 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 	}
 
 	if err != nil {
-		lstn.Close()
 		return nil, err
 	}
 
@@ -162,7 +175,6 @@ func (l *Listener) ListenContext(ctx context.Context, network string, address st
 	client := l.client()
 
 	if err := client.registerService(ctx, service); err != nil {
-		lstn.Close()
 		return nil, err
 	}
 
