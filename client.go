@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,8 +109,14 @@ func (c *Client) Delete(ctx context.Context, path string, query Query, recv inte
 // has an empty body. The recv argument should be a pointer to a type which
 // matches the format of the response, or nil if no response is expected.
 func (c *Client) Do(ctx context.Context, method string, path string, query Query, send interface{}, recv interface{}) (err error) {
+	_, err = c.do(ctx, method, path, query, send, recv)
+	return
+}
+
+func (c *Client) do(ctx context.Context, method string, path string, query Query, send interface{}, recv interface{}) (meta responseMeta, err error) {
 	var req io.ReadCloser
 	var res io.ReadCloser
+	var header http.Header
 
 	if send != nil {
 		b := &buffer{}
@@ -119,7 +126,7 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 		req = b
 	}
 
-	if _, res, err = c.do(ctx, method, path, query, req); err != nil {
+	if header, res, err = c.call(ctx, method, path, query, req); err != nil {
 		return
 	}
 	defer res.Close()
@@ -127,11 +134,11 @@ func (c *Client) Do(ctx context.Context, method string, path string, query Query
 	if recv != nil {
 		err = json.NewDecoder(res).Decode(recv)
 	}
-
+	meta = parseRespMeta(header)
 	return
 }
 
-func (c *Client) do(ctx context.Context, method string, path string, query Query, send io.ReadCloser) (header http.Header, recv io.ReadCloser, err error) {
+func (c *Client) call(ctx context.Context, method string, path string, query Query, send io.ReadCloser) (header http.Header, recv io.ReadCloser, err error) {
 	var res *http.Response
 	var scheme = "http"
 	var address = c.Address
@@ -206,6 +213,26 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 	return
 }
 
+func parseRespMeta(h http.Header) responseMeta {
+	var ret responseMeta
+	if v, ok := h["X-Consul-KnownLeader"]; ok && len(v) > 0 {
+		ret.knownLeader = true
+	}
+	if v, ok := h["X-Consul-Translate-Addresses"]; ok && len(v) > 0 {
+		ret.translateAddresses = true
+	}
+	ret.index, _ = strconv.ParseUint(h.Get("X-Consul-Index"), 10, 64)
+	ret.lastContact, _ = strconv.ParseUint(h.Get("X-Consul-LastContact"), 10, 64)
+	return ret
+}
+
+type responseMeta struct {
+	index              uint64
+	lastContact        uint64
+	knownLeader        bool
+	translateAddresses bool
+}
+
 // Query is a representation of a URL query string as a list of parameters.
 type Query []Param
 
@@ -213,6 +240,16 @@ type Query []Param
 type Param struct {
 	Name  string
 	Value string
+}
+
+func (q *Query) Add(new Param) {
+	ret := make(Query, len(*q))
+	for _, p := range *q {
+		if new.Name != p.Name {
+			ret = append(ret, p)
+		}
+	}
+	*q = append(ret, new)
 }
 
 // String satisfies the fmt.Stringer interface.

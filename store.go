@@ -51,7 +51,7 @@ func (store *Store) Walk(ctx context.Context, prefix string, walk func(key strin
 		{Name: "recurse", Value: "true"},
 	}
 
-	if _, result, err = store.client().do(ctx, "GET", store.path(prefix), query, nil); err != nil {
+	if _, result, err = store.client().call(ctx, "GET", store.path(prefix), query, nil); err != nil {
 		return
 	}
 	defer result.Close()
@@ -91,7 +91,7 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 		{Name: "recurse", Value: "true"},
 	}
 
-	if _, result, err = store.client().do(ctx, "GET", store.path(prefix), query, nil); err != nil {
+	if _, result, err = store.client().call(ctx, "GET", store.path(prefix), query, nil); err != nil {
 		return
 	}
 	defer result.Close()
@@ -118,7 +118,7 @@ func (store *Store) Read(ctx context.Context, key string) (value io.ReadCloser, 
 	var header http.Header
 	var sindex string
 
-	if header, value, err = store.client().do(ctx, "GET", store.path(key), Query{{Name: "raw"}}, nil); err != nil {
+	if header, value, err = store.client().call(ctx, "GET", store.path(key), Query{{Name: "raw"}}, nil); err != nil {
 		return
 	}
 
@@ -189,7 +189,7 @@ func (store *Store) Write(ctx context.Context, key string, value io.ReadCloser, 
 		})
 	}
 
-	if _, result, err = store.client().do(ctx, "PUT", store.path(key), query, value); err != nil {
+	if _, result, err = store.client().call(ctx, "PUT", store.path(key), query, value); err != nil {
 		return
 	}
 	defer result.Close()
