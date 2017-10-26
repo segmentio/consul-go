@@ -72,16 +72,15 @@ func (l *Listener) Listen(network string, address string) (net.Listener, error) 
 //
 // The context may be used to asynchronously cancel the consul registration.
 func (l *Listener) ListenContext(ctx context.Context, network string, address string) (net.Listener, error) {
-	lstn, err := net.Listen(network, address)
+	l1, err := net.Listen(network, address)
 	if err != nil {
 		return nil, err
 	}
-	lstn, err = l.Register(ctx, lstn)
+	l2, err := l.Register(ctx, l1)
 	if err != nil {
-		lstn.Close()
-		lstn = nil
+		l1.Close()
 	}
-	return lstn, err
+	return l2, err
 }
 
 // Register registers the given listener to consul and returns a decorated
