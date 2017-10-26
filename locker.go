@@ -31,7 +31,7 @@ type Locker struct {
 }
 
 // Lock acquires locks on the given keys. The method blocks until the locks were
-// acquired, or the context was camceled. The returned context will be canceled
+// acquired, or the context was canceled. The returned context will be canceled
 // when the locks are released (by calling the cancellation function), or if the
 // ownership was lost, in this case the contexts' Err method returns Unlocked.
 func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
