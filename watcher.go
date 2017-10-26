@@ -12,7 +12,7 @@ import (
 // passes a list of KeyData representing the most recent value or values stored
 // at the key or everything below the prefix. It can be nil.  error is passed
 // through to the handler if it is not Temporary. Caller is responsible for
-// stopping the watch via cancelling the context and implementing back off
+// stopping the watch via canceling the context and implementing back off
 // logic.  If the error is temporary, it will not pass it through to the
 // WatcherFunc unless MaxAttempts was hit.
 type WatcherFunc func([]KeyData, error)
@@ -30,7 +30,7 @@ var (
 
 	// WatchTransport is the same as DefaultTransport with a longer
 	// ResponseHeaderTimeout.  This is copied from DefaultTransport.  We don't
-	// do an actual copy because the Trasnport uses mutexes.  copied mutexes
+	// do an actual copy because the Transport uses mutexes.  copied mutexes
 	// are ineffective.  You will panic on concurrent map access if running
 	// with other clients without instantiating a new transport for watch.
 	WatchTransport http.RoundTripper = &http.Transport{
@@ -57,13 +57,13 @@ func (w *Watcher) client() *Client {
 	return c
 }
 
-// Watch is the package-level Watch defintion which is called on
+// Watch is the package-level Watch definition which is called on
 // DefaultWatcher.
 func Watch(ctx context.Context, key string, handler WatcherFunc) {
 	DefaultWatcher.Watch(ctx, key, handler)
 }
 
-// WatchPrefix is the package-level WatchPrefix defintion which is called on
+// WatchPrefix is the package-level WatchPrefix definition which is called on
 // DefaultWatcher.
 func WatchPrefix(ctx context.Context, prefix string, handler WatcherFunc) {
 	DefaultWatcher.WatchPrefix(ctx, prefix, handler)
