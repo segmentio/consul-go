@@ -103,6 +103,9 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 		if err = walk(data); err != nil {
 			return
 		}
+		// Reset because sometimes fields like SessionID don't exist and we end
+		// up leaking them between loop iterations.
+		data = KeyData{}
 	}
 
 	err = stream.Err()
