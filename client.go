@@ -126,7 +126,9 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 		req = b
 	}
 
-	if header, res, err = c.call(ctx, method, path, query, req); err != nil {
+	header, res, err = c.call(ctx, method, path, query, req)
+	meta = parseRespMeta(header)
+	if err != nil {
 		return
 	}
 	defer res.Close()
@@ -134,7 +136,6 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 	if recv != nil {
 		err = json.NewDecoder(res).Decode(recv)
 	}
-	meta = parseRespMeta(header)
 	return
 }
 
@@ -202,8 +203,10 @@ func (c *Client) call(ctx context.Context, method string, path string, query Que
 		return
 	}
 
+	header = res.Header
+
 	if res.StatusCode == http.StatusOK {
-		header, recv = res.Header, res.Body
+		recv = res.Body
 		return
 	}
 
@@ -243,7 +246,7 @@ type Param struct {
 }
 
 func (q *Query) Add(new Param) {
-	ret := make(Query, len(*q))
+	ret := make(Query, 0, len(*q))
 	for _, p := range *q {
 		if new.Name != p.Name {
 			ret = append(ret, p)

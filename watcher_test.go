@@ -101,3 +101,37 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 	})
 	<-ch
 }
+
+// This tests two things:
+// 1. a non-existant key doesn't immediately throw a 404 on the second
+//    call (the first will always throw 404 because it doesn't exist)
+// 2. the index is being set properly in the request
+func TestWatchPrefixNonExistant(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan struct{})
+	res := []KeyData{}
+	skipFirst := true
+
+	go WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		if err != nil {
+			t.Error(err)
+		}
+		res = d
+		close(ch)
+	})
+
+	// Give time for the handler to setup, the handler will trigger if there's
+	// an error.
+	time.Sleep(10 * time.Millisecond)
+
+	// release the test
+	err := DefaultClient.Put(ctx, "/v1/kv/test4/key", nil, "narg", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-ch
+}
