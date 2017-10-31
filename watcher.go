@@ -85,10 +85,7 @@ func (w *Watcher) Watch(ctx context.Context, key string, handler WatcherFunc) {
 // way the API is implemented.  See https://github.com/hashicorp/consul/issues/1761
 // for details.
 func (w *Watcher) WatchPrefix(ctx context.Context, prefix string, handler WatcherFunc) {
-	q := Query{Param{
-		Name:  "recurse",
-		Value: "",
-	}}
+	q := Query{Param{Name: "recurse", Value: ""}}
 	w.watching(ctx, prefix, handler, q)
 }
 
@@ -105,6 +102,9 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 		q.Add(Param{Name: "index", Value: value})
 		resp := []KeyData{}
 		hdr, err := w.client().do(ctx, "GET", path, q, nil, &resp)
+		if hdr.index > 0 {
+			value = strconv.FormatUint(hdr.index, 10)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -125,6 +125,5 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 			attempt = 0
 		}
 		handler(resp, err)
-		value = strconv.FormatUint(hdr.index, 10)
 	}
 }
