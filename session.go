@@ -139,7 +139,7 @@ func newSessionCtx(ctx context.Context, session Session) *sessionCtx {
 		ctx:     ctx,
 		done:    make(chan struct{}),
 	}
-	go s.run()
+	go s.run(time.Now().Add(session.TTL))
 	return s
 }
 
@@ -182,29 +182,32 @@ func (s *sessionCtx) id() string {
 	return string(s.session.ID)
 }
 
-func (s *sessionCtx) run() {
+func (s *sessionCtx) run(deadline time.Time) {
 	timeout := s.session.TTL / 3
 	ticker := time.NewTicker(timeout)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
 		case <-s.done:
 			return
 		case <-s.ctx.Done():
 			s.cancelWithError(s.ctx.Err())
 			return
-		}
+		case now := <-ticker.C:
+			renewSessionCtx, renewSessionCancel := context.WithTimeout(s, timeout)
+			err := s.session.Client.renewSession(renewSessionCtx, s.id())
+			renewSessionCancel()
 
-		// TODO: tolerate failures here? add retries with backoff?
-		renewSessionCtx, renewSessionCancel := context.WithTimeout(s, timeout)
-		err := s.session.Client.renewSession(renewSessionCtx, s.id())
-		renewSessionCancel()
+			if err != nil {
+				if now.Before(deadline) {
+					continue
+				}
+				s.cancelWithError(err)
+				return
+			}
 
-		if err != nil {
-			s.cancelWithError(err)
-			return
+			deadline = now.Add(s.session.TTL)
 		}
 	}
 }
