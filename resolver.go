@@ -145,7 +145,7 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 	query := make(Query, 0, 1+len(rslv.NodeMeta)+len(rslv.ServiceTags))
 
 	if rslv.OnlyPassing {
-		query = append(query, Param{Name: "passing"})
+		query = append(query, Param{Name: "passing"}, Param{Name: "stale"})
 	}
 
 	for key, value := range rslv.NodeMeta {
