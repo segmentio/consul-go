@@ -39,6 +39,7 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 		foundQuery := req.URL.Query()
 		expectQuery := url.Values{
 			"passing":   {""},
+			"stale":     {""},
 			"dc":        {"dc1"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
@@ -164,6 +165,7 @@ func testLookupHost(t *testing.T, cache *ResolverCache) {
 		foundQuery := req.URL.Query()
 		expectQuery := url.Values{
 			"passing":   {""},
+			"stale":     {""},
 			"dc":        {"dc1"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
