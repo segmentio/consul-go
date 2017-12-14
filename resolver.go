@@ -350,17 +350,19 @@ func (cache *ResolverCache) LookupServiceInto(ctx context.Context, name string, 
 	// We have to make a copy to let the caller own the value returned by this
 	// method. Otherwise it could make changes that modify the cache's internal
 	// memory, which would cause races and unexpected behaviors between calls to
-	// the LookupService method. Here we expand the provided slice to fit the
-	// results we have to store in it.
+	// the LookupService method.
+
 	if list == nil {
 		list = make([]Endpoint, len(entry.res))
-	} else if len(list) < len(entry.res) {
-		list = append(list, make([]Endpoint, len(entry.res)-len(list))...)
+	}
+
+	copy(list, entry.res)
+	if len(list) < len(entry.res) {
+		list = append(list, entry.res[len(list):]...)
 	} else if len(list) > len(entry.res) {
 		list = list[:len(entry.res)]
 	}
 
-	copy(list, entry.res)
 	return list, entry.err
 }
 
