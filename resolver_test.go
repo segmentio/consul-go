@@ -373,6 +373,32 @@ func BenchmarkResolverCache(b *testing.B) {
 	})
 }
 
+func BenchmarkResolverCacheInto(b *testing.B) {
+	list := []Endpoint{
+		{Addr: newServiceAddr("192.168.0.1", 4242)},
+		{Addr: newServiceAddr("192.168.0.2", 4242)},
+		{Addr: newServiceAddr("192.168.0.3", 4242)},
+	}
+
+	cache := &ResolverCache{
+		CacheTimeout: 10 * time.Millisecond,
+	}
+
+	lookup := func(ctx context.Context, name string) (addrs []Endpoint, err error) {
+		return list, nil
+	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		ctx := context.Background()
+
+		res := make([]Endpoint, 10)
+
+		for pb.Next() {
+			cache.LookupServiceInto(ctx, "", res, lookup)
+		}
+	})
+}
+
 func TestResolverBlacklist(t *testing.T) {
 	tests := []struct {
 		scenario string
