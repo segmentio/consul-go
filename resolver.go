@@ -98,11 +98,17 @@ func (rslv *Resolver) LookupHost(ctx context.Context, name string) ([]string, er
 // LookupService resolves a service name to a list of endpoints using the
 // resolver's configuration to narrow and sort the result set.
 func (rslv *Resolver) LookupService(ctx context.Context, name string) ([]Endpoint, error) {
-	var list []Endpoint
+	return rslv.LookupServiceInto(ctx, name, nil)
+}
+
+// LookupServiceInto resolves a service name to a list of endpoints using the
+// resolver's configuration to narrow and sort the result set. It uses the
+// provided slice to store the results, if it has a large enough capacity.
+func (rslv *Resolver) LookupServiceInto(ctx context.Context, name string, list []Endpoint) ([]Endpoint, error) {
 	var err error
 
 	if cache := rslv.Cache; cache != nil {
-		list, err = cache.LookupService(ctx, name, rslv.lookupService)
+		list, err = cache.LookupServiceInto(ctx, name, list, rslv.lookupService)
 	} else {
 		list, err = rslv.lookupService(ctx, name)
 	}
@@ -297,6 +303,13 @@ const (
 // LookupService resolves a service name by fetching the address list from the
 // cache, or calling lookup if the name did not exist.
 func (cache *ResolverCache) LookupService(ctx context.Context, name string, lookup LookupServiceFunc) ([]Endpoint, error) {
+	return cache.LookupServiceInto(ctx, name, nil, lookup)
+}
+
+// LookupServiceInto resolves a service name by fetching the address list from the
+// cache, or calling lookup if the name did not exist. The results are stored in
+// the provided list value, if it has a large enough capacity.
+func (cache *ResolverCache) LookupServiceInto(ctx context.Context, name string, list []Endpoint, lookup LookupServiceFunc) ([]Endpoint, error) {
 	cacheTimeout := cache.cacheTimeout()
 	entry := cache.cache()[name]
 	now := time.Now()
@@ -338,8 +351,18 @@ func (cache *ResolverCache) LookupService(ctx context.Context, name string, look
 	// method. Otherwise it could make changes that modify the cache's internal
 	// memory, which would cause races and unexpected behaviors between calls to
 	// the LookupService method.
-	list := make([]Endpoint, len(entry.res))
+
+	if list == nil {
+		list = make([]Endpoint, len(entry.res))
+	}
+
 	copy(list, entry.res)
+	if len(list) < len(entry.res) {
+		list = append(list, entry.res[len(list):]...)
+	} else if len(list) > len(entry.res) {
+		list = list[:len(entry.res)]
+	}
+
 	return list, entry.err
 }
 
