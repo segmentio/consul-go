@@ -71,9 +71,11 @@ func WatchPrefix(ctx context.Context, prefix string, handler WatcherFunc) {
 
 // Watch executes a long poll for changes to the given key.  handler will be
 // called immediately upon registration to initialize the watch and returns
-// the initial value (as a list, this is what Consul API returns).  There is
-// a chance that Watch can miss updates due to the way the API is implemented.
-// See https://github.com/hashicorp/consul/issues/1761 for details.
+// the initial value (as a list, this is what Consul API returns).  In cases
+// where the key is being rapidly updated, there is a chance that Watch can
+// miss intermediate updates due to the way the API is implemented.  However,
+// Watch will always converge on the most recent value.  See
+// https://github.com/hashicorp/consul/issues/1761 for details.
 func (w *Watcher) Watch(ctx context.Context, key string, handler WatcherFunc) {
 	w.watching(ctx, key, handler, nil)
 }
@@ -81,9 +83,11 @@ func (w *Watcher) Watch(ctx context.Context, key string, handler WatcherFunc) {
 // WatchPrefix executes a long poll for changes to anything under the given
 // prefix.  handler will be called immediately upon registration to initialize
 // the watch and returns the initial value (as a list, this is what Consul API
-// returns).  There is a chance that WatchPrefix can miss updates due to the
-// way the API is implemented.  See https://github.com/hashicorp/consul/issues/1761
-// for details.
+// returns).  In cases where children of prefix are being rapidly updated,
+// there is a chance that WatchPrefix can miss intermediate updates due to the
+// way the API is implemented.  However, WatchPrefix will always converge on
+// the most recent values.  See
+// https://github.com/hashicorp/consul/issues/1761 for details.
 func (w *Watcher) WatchPrefix(ctx context.Context, prefix string, handler WatcherFunc) {
 	q := Query{Param{Name: "recurse", Value: ""}}
 	w.watching(ctx, prefix, handler, q)
