@@ -48,6 +48,16 @@ func TestStore(t *testing.T) {
 		},
 
 		{
+			scenario: "compare-and-swap a nonexistent value must fail if the value exists",
+			test:     testCompareAndSwapNonexistentFailure,
+		},
+
+		{
+			scenario: "compare-and-swap a nonexistent value must succeed if value does not exist",
+			test:     testCompareAndSwapNonexistentSuccess,
+		},
+
+		{
 			scenario: "writing a locked key without passing the lock context should fail",
 			test:     testWriteLockedKeyFailure,
 		},
@@ -240,6 +250,30 @@ func testCompareAndSwapSuccess(t *testing.T, ctx context.Context, store *Store) 
 	// Attempting a compare-and-swap should succeed because the key hasn't been
 	// modified.
 	write(t, ctx, store, "A", 1, index)
+
+	if _, err := store.ReadValue(ctx, "A", &value); err != nil {
+		t.Error(err)
+	} else if value != 1 {
+		t.Error("bad value after CAS operation:", value)
+	}
+}
+
+func testCompareAndSwapNonexistentFailure(t *testing.T, ctx context.Context, store *Store) {
+	write(t, ctx, store, "A", 42, -1)
+
+	// Attempting a compare-and-swap should fail if the value exists.
+	if ok, err := store.WriteValue(ctx, "A", 2, 0); err != nil {
+		t.Error(err)
+	} else if ok {
+		t.Error("the CAS operation should have failed because the value existed")
+	}
+}
+
+func testCompareAndSwapNonexistentSuccess(t *testing.T, ctx context.Context, store *Store) {
+	value := 1
+
+	// Attempting a compare-and-swap should succeed because the key doesn't exist
+	write(t, ctx, store, "A", value, 0)
 
 	if _, err := store.ReadValue(ctx, "A", &value); err != nil {
 		t.Error(err)

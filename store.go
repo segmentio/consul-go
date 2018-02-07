@@ -185,7 +185,7 @@ func (store *Store) Write(ctx context.Context, key string, value io.ReadCloser, 
 		}
 	}
 
-	if index > 0 {
+	if index >= 0 {
 		query = append(query, Param{
 			Name:  "cas",
 			Value: strconv.FormatInt(index, 10),
