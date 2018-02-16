@@ -2,25 +2,14 @@ version: 2
 jobs:
   build:
     working_directory: /go/src/github.com/segmentio/consul-go
-
     docker:
       - image: circleci/golang
       - image: consul
         command: agent -server -dev -log-level debug -bind 0.0.0.0 -client 0.0.0.0
-        ports:
-          - 8500:8500
-
+        ports: ["8500:8500"]
     steps:
       - checkout
-
-      - setup_remote_docker:
-          reusable: true
-          docker_layer_caching: true
-
-      - run:
-          name: Vet
-          command: go vet ./...
-
-      - run:
-          name: Test
-          command: go test -race ./...
+      - setup_remote_docker: { reusable: true, docker_layer_caching: true }
+      - run: go get -v ./...
+      - run: go vet ./...
+      - run: go test -v -race ./...
