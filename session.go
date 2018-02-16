@@ -216,8 +216,8 @@ func (s *sessionCtx) run(deadline time.Time) {
 
 type duration time.Duration
 
-func (d duration) MarshalJSON() []byte {
-	return []byte(time.Duration(d).String())
+func (d duration) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + time.Duration(d).String() + `"`), nil
 }
 
 func (d *duration) UnmarshalJSON(b []byte) error {

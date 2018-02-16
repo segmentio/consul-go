@@ -18,5 +18,9 @@ jobs:
           docker_layer_caching: true
 
       - run:
+          name: Vet
+          command: go vet ./...
+
+      - run:
           name: Test
           command: go test -race ./...
