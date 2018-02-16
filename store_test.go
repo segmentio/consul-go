@@ -353,8 +353,7 @@ func testWalkFromUnsetKey(t *testing.T, ctx context.Context, store *Store) {
 	notFound, ok := err.(errNotFound)
 	if !ok {
 		t.Error("the error returned doesn't satisfies the errNotFound interface")
-	}
-	if !notFound.NotFound() {
+	} else if !notFound.NotFound() {
 		t.Error("NotFound() does not return true")
 	}
 }
