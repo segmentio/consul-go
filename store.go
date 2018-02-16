@@ -3,6 +3,7 @@ package consul
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,9 +12,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
-
-	"github.com/segmentio/objconv"
-	"github.com/segmentio/objconv/json"
+	"time"
 )
 
 // A Store exposes an API to interract with the consul key/value store.
@@ -56,16 +55,20 @@ func (store *Store) Walk(ctx context.Context, prefix string, walk func(key strin
 	}
 	defer result.Close()
 
-	var stream = json.NewStreamDecoder(result)
-	var key string
+	var keys []string
+	if err = json.NewDecoder(result).Decode(&keys); err != nil {
+		return
+	}
+	if err = result.Close(); err != nil {
+		return
+	}
 
-	for stream.Decode(&key) == nil {
+	for _, key := range keys {
 		if err = walk(store.clean(key)); err != nil {
 			return
 		}
 	}
 
-	err = stream.Err()
 	return
 }
 
@@ -96,19 +99,21 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 	}
 	defer result.Close()
 
-	var stream = json.NewStreamDecoder(result)
-	var data KeyData
-	for stream.Decode(&data) == nil {
+	var keyData []KeyData
+	if err = json.NewDecoder(result).Decode(&keyData); err != nil {
+		return
+	}
+	if err = result.Close(); err != nil {
+		return
+	}
+
+	for _, data := range keyData {
 		data.Key = store.clean(data.Key)
 		if err = walk(data); err != nil {
 			return
 		}
-		// Reset because sometimes fields like SessionID don't exist and we end
-		// up leaking them between loop iterations.
-		data = KeyData{}
 	}
 
-	err = stream.Err()
 	return
 }
 
@@ -212,14 +217,18 @@ func (store *Store) Write(ctx context.Context, key string, value io.ReadCloser, 
 func (store *Store) WriteValue(ctx context.Context, key string, value interface{}, index int64) (ok bool, err error) {
 	// Use a pretty-JSON encoder to make it easier to read values in the consul
 	// web UI.
-	b := &bytes.Buffer{}
-	e := objconv.Encoder{Emitter: json.NewPrettyEmitter(b)}
+	var a []byte
+	var b bytes.Buffer
 
-	if err = e.Encode(value); err != nil {
+	if a, err = json.Marshal(value); err != nil {
 		return
 	}
 
-	ok, err = store.Write(ctx, key, ioutil.NopCloser(b), index)
+	if err = json.Indent(&b, a, "", "  "); err != nil {
+		return
+	}
+
+	ok, err = store.Write(ctx, key, ioutil.NopCloser(&b), index)
 	return
 }
 
@@ -276,7 +285,7 @@ func (store *Store) Session(ctx context.Context, key string) (session Session, e
 		ID:        keyData.Session,
 		Name:      config.Name,
 		Behavior:  SessionBehavior(config.Behavior),
-		LockDelay: fromSeconds(config.LockDelay),
+		LockDelay: time.Duration(config.LockDelay),
 		TTL:       fromSeconds(config.TTL),
 	}
 	return

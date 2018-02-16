@@ -2,14 +2,13 @@ package consul
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/segmentio/objconv/json"
 )
 
 func init() {

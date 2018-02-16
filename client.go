@@ -3,8 +3,10 @@ package consul
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/segmentio/objconv/json"
 )
 
 const (
@@ -119,11 +119,11 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 	var header http.Header
 
 	if send != nil {
-		b := &buffer{}
-		if err = json.NewEncoder(b).Encode(send); err != nil {
+		var b []byte
+		if b, err = json.Marshal(send); err != nil {
 			return
 		}
-		req = b
+		req = ioutil.NopCloser(bytes.NewReader(b))
 	}
 
 	header, res, err = c.call(ctx, method, path, query, req)

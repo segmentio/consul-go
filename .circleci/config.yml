@@ -4,7 +4,7 @@ jobs:
     working_directory: /go/src/github.com/segmentio/consul-go
 
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang
 
     steps:
       - checkout
@@ -30,10 +30,6 @@ jobs:
       - run:
           name: Start Containers
           command: sudo docker-compose up -d
-
-      - run:
-          name: Fetch Dependencies
-          command: go get -v ./...
 
       - run:
           name: Test

@@ -25,7 +25,6 @@ func TestWatchPrefix(t *testing.T) {
 		res = d
 		close(ch)
 	})
-
 	// Give time for the handler to setup
 	time.Sleep(10 * time.Millisecond)
 	err = DefaultClient.Put(ctx, "/v1/kv/test1/key", nil, "narg", nil)
@@ -35,7 +34,7 @@ func TestWatchPrefix(t *testing.T) {
 
 	<-ch
 	if string(res[0].Value) != "\"narg\"" {
-		t.Errorf("watch should return updated value. exp: %v, act: %v", "narg", string(res[0].Value))
+		t.Errorf("watch should return updated value. exp: \"narg\", act: %v", string(res[0].Value))
 	}
 }
 
@@ -64,7 +63,12 @@ func TestWatch(t *testing.T) {
 	}
 	<-ch
 	if string(res.Value) != "\"narg\"" {
-		t.Errorf("watch should return updated value. exp: %v, act: %v", "narg", string(res.Value))
+		t.Log(len(res.Value))
+		t.Log(len(`"narg"`))
+		for i := range res.Value {
+			t.Logf("%c (%#x)", res.Value[i], res.Value[i])
+		}
+		t.Errorf("watch should return updated value. exp: \"narg\", act: %v", string(res.Value))
 	}
 }
 

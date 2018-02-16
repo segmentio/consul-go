@@ -2,6 +2,8 @@ package consul
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -86,7 +88,7 @@ func WithSession(ctx context.Context, session Session) (context.Context, context
 	sid, err := session.Client.createSession(createSessionCtx, sessionConfig{
 		Name:      session.Name,
 		Behavior:  string(session.Behavior),
-		LockDelay: seconds(session.LockDelay),
+		LockDelay: duration(session.LockDelay),
 		TTL:       seconds(session.TTL),
 	})
 
@@ -104,7 +106,7 @@ type sessionConfig struct {
 	Node      string   `json:",omitempty"`
 	Checks    []string `json:",omitempty"`
 	Behavior  string   `json:",omitempty"`
-	LockDelay string   `json:",omitempty"`
+	LockDelay duration `json:",omitempty"`
 	TTL       string   `json:",omitempty"`
 }
 
@@ -210,6 +212,33 @@ func (s *sessionCtx) run(deadline time.Time) {
 			deadline = now.Add(s.session.TTL)
 		}
 	}
+}
+
+type duration time.Duration
+
+func (d duration) MarshalJSON() []byte {
+	return []byte(time.Duration(d).String())
+}
+
+func (d *duration) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || b[0] != '"' {
+		v, err := strconv.ParseFloat(string(b), 64)
+		if err != nil {
+			return err
+		}
+		*d = duration(v * float64(time.Second))
+	} else {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		v, err := time.ParseDuration(s)
+		if err != nil {
+			return err
+		}
+		*d = duration(v)
+	}
+	return nil
 }
 
 func contextSession(ctx context.Context) Session {
