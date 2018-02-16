@@ -6,7 +6,7 @@ jobs:
       - image: circleci/golang
       - image: consul
         command: agent -server -dev -log-level debug -bind 0.0.0.0 -client 0.0.0.0
-        ports: ["8500:8500"]
+        ports: ['8500:8500']
     steps:
       - checkout
       - setup_remote_docker: { reusable: true, docker_layer_caching: true }
