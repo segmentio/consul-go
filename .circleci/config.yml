@@ -1,0 +1,32 @@
+version: 2
+jobs:
+  build:
+    working_directory: /go/src/github.com/segmentio/consul-go
+
+    docker:
+      - image: circleci/golang:1.9
+
+    steps:
+      - checkout
+
+      - run:
+          name: Install Docker Compose
+          command: |
+            curl -L "https://github.com/docker/compose/releases/download/1.14.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
+            chmod +x ~/docker-compose
+            sudo mv ~/docker-compose /usr/local/bin/docker-compose
+
+      - setup_remote_docker:
+          reusable: true
+
+      - run:
+          name: Start Containers
+          command: docker-compose up -d
+
+      - run:
+          name: Fetch Dependencies
+          command: go get -v ./...
+
+      - run:
+          name: Test
+          command: go test -v -race -cover ./...
