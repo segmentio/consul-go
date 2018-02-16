@@ -175,6 +175,10 @@ func (store *Store) Write(ctx context.Context, key string, value io.ReadCloser, 
 	var result io.ReadCloser
 	var query Query
 
+	if err = ctx.Err(); err != nil {
+		return
+	}
+
 	locks, _ := ctx.Value(LocksKey).([]string)
 	for _, lock := range locks {
 		if lock = store.clean(lock); lock == key {

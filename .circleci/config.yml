@@ -9,19 +9,27 @@ jobs:
     steps:
       - checkout
 
+      - restore_cache:
+          key: deps-{{ checksum "/usr/local/bin/docker-compose" }}
+
       - run:
           name: Install Docker Compose
           command: |
-            curl -L "https://github.com/docker/compose/releases/download/1.14.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
-            chmod +x ~/docker-compose
-            sudo mv ~/docker-compose /usr/local/bin/docker-compose
+            curl -L "https://github.com/docker/compose/releases/download/1.14.0/docker-compose-$(uname -s)-$(uname -m)" -o /tmp/docker-compose
+            chmod +x /tmp/docker-compose
+            sudo mv /tmp/docker-compose /usr/local/bin/docker-compose
+
+      - save_cache:
+          key: deps-{{ checksum "/usr/local/bin/docker-compose" }}
+          paths:
+            - /usr/local/bin/docker-compose
 
       - setup_remote_docker:
           reusable: true
 
       - run:
           name: Start Containers
-          command: docker-compose up -d
+          command: sudo docker-compose up -d
 
       - run:
           name: Fetch Dependencies
@@ -29,4 +37,4 @@ jobs:
 
       - run:
           name: Test
-          command: go test -v -race -cover ./...
+          command: go test -race ./...

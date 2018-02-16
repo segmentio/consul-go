@@ -108,8 +108,7 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 // 2. the index is being set properly in the request
 func TestWatchPrefixNonExistant(t *testing.T) {
 	ctx := context.Background()
-	ch := make(chan struct{})
-	res := []KeyData{}
+	ch := make(chan []KeyData, 1)
 	skipFirst := true
 
 	go WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
@@ -120,8 +119,7 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		res = d
-		close(ch)
+		ch <- d
 	})
 
 	// Give time for the handler to setup, the handler will trigger if there's
