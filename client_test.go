@@ -45,7 +45,7 @@ func TestClient(t *testing.T) {
 			path:   "/hello/world",
 			query:  nil,
 			recv:   map[string]string{},
-			send:   map[string]string{},
+			send:   map[string]string{"body": "test"},
 		},
 		{
 			method: "DELETE",
@@ -75,6 +75,10 @@ func TestClient(t *testing.T) {
 
 				if !reflect.DeepEqual(send, test.send) {
 					t.Error(send)
+				}
+
+				if send != nil && req.ContentLength < 0 {
+					t.Error("invalid content length")
 				}
 
 				json.NewEncoder(res).Encode(test.recv)
