@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -123,7 +122,7 @@ func (c *Client) do(ctx context.Context, method string, path string, query Query
 		if b, err = json.Marshal(send); err != nil {
 			return
 		}
-		req = ioutil.NopCloser(bytes.NewReader(b))
+		req = &buffer{bytes.NewReader(b)}
 	}
 
 	header, res, err = c.call(ctx, method, path, query, req)
@@ -285,7 +284,7 @@ func (q Query) Values() url.Values {
 }
 
 type buffer struct {
-	bytes.Buffer
+	*bytes.Reader
 }
 
 func (*buffer) Close() error { return nil }
