@@ -103,31 +103,40 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 
 	attempt := 0
 	for {
+		// bail if the client has cancelled the context
+		if ctx.Err() != nil {
+			return
+		}
 		q.Add(Param{Name: "index", Value: value})
 		resp := []KeyData{}
 		hdr, err := w.client().do(ctx, "GET", path, q, nil, &resp)
 		if hdr.index > 0 {
 			value = strconv.FormatUint(hdr.index, 10)
 		}
+		// When an error occurs, notify the handler after MaxAttempts and do
+		// exponential backoff until caller explicitly cancels context. This
+		// accomplishes a few things:
+		// 1) prevent tight-loop if the handler isn't cancelling the context
+		// 2) provides back-pressure when consul is down
+		// 3) gives the handler visibility to all errors
+		// prevents a tight loop on continuous errors while also notiying the caller.
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			attempt += 1
-			if attempt >= w.MaxAttempts {
-				handler(nil, err)
+			attempt++
+			if attempt <= w.MaxAttempts {
 				continue
 			}
-			if v, ok := err.(interface {
-				Temporary() bool
-			}); ok {
-				if v.Temporary() {
-					continue
-				}
-			}
-		} else {
-			attempt = 0
+
+			// notify the handler after MaxAttempts
+			handler(nil, err)
+
+			// exponential backoff to prevent tight-loop when the caller has not
+			// cancelled the context
+			time.Sleep(time.Duration(attempt>>1) * time.Millisecond)
+			continue
 		}
+
+		// successful update
+		attempt = 0
 		handler(resp, err)
 	}
 }

@@ -1,8 +1,11 @@
 package consul
 
 import (
+	"bytes"
 	"context"
+	"io/ioutil"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -136,4 +139,70 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-ch
+}
+
+func TestWatchErrorMaxAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	c := &Client{
+		Transport: &mockTransport{500, nil, nil},
+	}
+	w := &Watcher{Client: c, MaxAttempts: 10}
+	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
+		if err == nil {
+			t.Error("Expected error but got nil")
+			return
+		}
+		cancel()
+		close(ch)
+	})
+	<-ch
+}
+
+type mockTransport struct {
+	StatusCode int
+	Headers    map[string]string
+	Body       []byte
+}
+
+func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	status := strconv.Itoa(t.StatusCode) + " " + http.StatusText(t.StatusCode)
+	header := http.Header{}
+	for name, value := range t.Headers {
+		header.Set(name, value)
+	}
+
+	contentLength := len(t.Body)
+	header.Set("Content-Length", strconv.Itoa(contentLength))
+
+	res := &http.Response{
+		Status:           status,
+		StatusCode:       t.StatusCode,
+		Proto:            "HTTP/1.0",
+		ProtoMajor:       1,
+		ProtoMinor:       0,
+		Header:           header,
+		Body:             ioutil.NopCloser(bytes.NewReader(t.Body)),
+		ContentLength:    int64(contentLength),
+		TransferEncoding: []string{},
+		Close:            false,
+		Uncompressed:     false,
+		Trailer:          nil,
+		Request:          req,
+		TLS:              nil,
+	}
+
+	// no Content-Length when 204 or 304
+	if t.StatusCode == http.StatusNoContent || t.StatusCode == http.StatusNotModified {
+		if res.ContentLength != 0 {
+			res.Body = ioutil.NopCloser(bytes.NewReader([]byte{}))
+			res.ContentLength = 0
+		}
+		header.Del("Content-Length")
+	}
+	return res, nil
 }
