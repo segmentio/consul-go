@@ -119,7 +119,6 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 		// 1) prevent tight-loop if the handler isn't cancelling the context
 		// 2) provides back-pressure when consul is down
 		// 3) gives the handler visibility to all errors
-		// prevents a tight loop on continuous errors while also notiying the caller.
 		if err != nil {
 			attempt++
 			if attempt <= w.MaxAttempts {
