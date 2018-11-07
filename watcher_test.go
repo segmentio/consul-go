@@ -141,9 +141,43 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 	<-ch
 }
 
-func TestWatchErrorMaxAttempts(t *testing.T) {
+func TestWatchMaxBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	skipFirst := true
+	c := &Client{
+		Transport: &mockTransport{500, nil, nil},
+	}
+	maxAttempts := 2
+	initialBackoff := 1 * time.Hour // max backoff will constrain this
+	maxBackoff := 10 * time.Millisecond
+	w := &Watcher{Client: c, MaxAttempts: maxAttempts, InitialBackoff: initialBackoff, MaxBackoff: maxBackoff}
+	start := time.Now()
+	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		cancel()
+		close(ch)
+	})
+	<-ch
+
+	elapsed := time.Now().Sub(start)
+
+	// execution time should never be more than twice the backoff
+	if elapsed > maxBackoff*2 {
+		t.Errorf("watcher backoff was longer than expected: %v", elapsed)
+	}
+}
+
+func TestWatchErrorMaxAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := DefaultClient.Put(ctx, "/v1/kv/test6/key", nil, "blah", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +186,7 @@ func TestWatchErrorMaxAttempts(t *testing.T) {
 		Transport: &mockTransport{500, nil, nil},
 	}
 	w := &Watcher{Client: c, MaxAttempts: 10}
-	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
+	go w.Watch(ctx, "test6/key", func(d []KeyData, err error) {
 		if err == nil {
 			t.Error("Expected error but got nil")
 			return

@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+const defMaxAttempts = 10
+
+var (
+	defInitialBackoff = 1 * time.Second
+	defMaxBackoff     = 30 * time.Second
+)
+
 // WatcherFunc is the function signature for the callback from watch.  It
 // passes a list of KeyData representing the most recent value or values stored
 // at the key or everything below the prefix. It can be nil.  error is passed
@@ -21,12 +28,25 @@ type WatcherFunc func([]KeyData, error)
 type Watcher struct {
 	Client *Client
 	// MaxAttempts limits the number of subsequent failed API calls before
-	// bailing out of the watch.
+	// bailing out of the watch. Defaults to 10.
 	MaxAttempts int
+
+	// InitialBackoff is the amount of time to wait on the initial backoff when
+	// an error occurs. Backoff durations are subsequently increased exponentially
+	// while less than MaxBackoff. Defaults to 1s.
+	InitialBackoff time.Duration
+
+	// MaxBackoff limits the maximum time to wait when doing exponential backoff
+	// after encountering errors. Defaults to 30s.
+	MaxBackoff time.Duration
 }
 
 var (
-	DefaultWatcher = &Watcher{}
+	DefaultWatcher = &Watcher{
+		MaxAttempts:    defMaxAttempts,
+		InitialBackoff: defInitialBackoff,
+		MaxBackoff:     defMaxBackoff,
+	}
 
 	// WatchTransport is the same as DefaultTransport with a longer
 	// ResponseHeaderTimeout.  This is copied from DefaultTransport.  We don't
@@ -95,7 +115,7 @@ func (w *Watcher) WatchPrefix(ctx context.Context, prefix string, handler Watche
 
 func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc, q Query) {
 	if w.MaxAttempts <= 0 {
-		w.MaxAttempts = 10
+		w.MaxAttempts = defMaxAttempts
 	}
 
 	path := "/v1/kv/" + key
@@ -128,14 +148,9 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 			// notify the handler after MaxAttempts
 			handler(nil, err)
 
-			// exponential backoff to prevent tight-loop when the caller has not
+			// exponential backoff prevents tight-loop when the caller has not
 			// cancelled the context
-			timer := time.NewTimer(time.Duration(attempt<<1) * time.Millisecond)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-			}
-			timer.Stop()
+			w.backoff(ctx, attempt)
 			continue
 		}
 
@@ -143,4 +158,27 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 		attempt = 0
 		handler(resp, err)
 	}
+}
+
+func (w *Watcher) backoff(ctx context.Context, n int) {
+	if w.InitialBackoff <= 0 {
+		w.InitialBackoff = defInitialBackoff
+	}
+	if w.MaxBackoff <= 0 {
+		w.MaxBackoff = defMaxBackoff
+	}
+
+	backoff := time.Duration(n<<1) * w.InitialBackoff
+	if backoff > w.MaxBackoff {
+		backoff = w.MaxBackoff
+	}
+
+	timer := time.NewTimer(backoff)
+
+	// wait for either the context to cancel or timer to expire
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	timer.Stop()
 }
