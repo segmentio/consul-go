@@ -130,7 +130,7 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 
 			// exponential backoff to prevent tight-loop when the caller has not
 			// cancelled the context
-			time.Sleep(time.Duration(attempt>>1) * time.Millisecond)
+			time.Sleep(time.Duration(attempt<<1) * time.Millisecond)
 			continue
 		}
 
