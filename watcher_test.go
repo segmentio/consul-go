@@ -89,7 +89,7 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 	c := &Client{
 		Transport: ts,
 	}
-	w := &Watcher{Client: c, MaxAttempts: 10}
+	w := &Watcher{Client: c, MaxAttempts: 2, MaxBackoff: 10 * time.Millisecond}
 	go w.Watch(ctx, "test3/key", func(d []KeyData, err error) {
 		// We should only see this function 2x: first for initialization,
 		// then the timeout.  we never trigger the watch and all the errors
@@ -142,7 +142,7 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 }
 
 func TestWatchMaxBackoff(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //, 3*time.Second)
 	err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestWatchMaxBackoff(t *testing.T) {
 		Transport: &mockTransport{500, nil, nil},
 	}
 	maxAttempts := 2
-	initialBackoff := 1 * time.Hour // max backoff will constrain this
+	initialBackoff := 1 * time.Hour
 	maxBackoff := 10 * time.Millisecond
 	w := &Watcher{Client: c, MaxAttempts: maxAttempts, InitialBackoff: initialBackoff, MaxBackoff: maxBackoff}
 	start := time.Now()
