@@ -1,8 +1,11 @@
 package consul
 
 import (
+	"bytes"
 	"context"
+	"io/ioutil"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -86,7 +89,7 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 	c := &Client{
 		Transport: ts,
 	}
-	w := &Watcher{Client: c, MaxAttempts: 10}
+	w := &Watcher{Client: c, MaxAttempts: 2, MaxBackoff: 10 * time.Millisecond}
 	go w.Watch(ctx, "test3/key", func(d []KeyData, err error) {
 		// We should only see this function 2x: first for initialization,
 		// then the timeout.  we never trigger the watch and all the errors
@@ -107,19 +110,17 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 }
 
 // This tests two things:
-// 1. a non-existant key doesn't immediately throw a 404 on the second
-//    call (the first will always throw 404 because it doesn't exist)
+// 1. a non-existant key doesn't immediately receive an error
 // 2. the index is being set properly in the request
 func TestWatchPrefixNonExistant(t *testing.T) {
 	ctx := context.Background()
+	// ensure that the key does not exist
+	if err := DefaultClient.Delete(ctx, "/v1/kv/test4/key", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	ch := make(chan []KeyData, 1)
-	skipFirst := true
-
-	go WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
-		if skipFirst {
-			skipFirst = false
-			return
-		}
+	w := &Watcher{MaxBackoff: 11 * time.Millisecond}
+	go w.WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
 		if err != nil {
 			t.Error(err)
 		}
@@ -136,4 +137,108 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-ch
+}
+
+func TestWatchMaxBackoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background()) //, 3*time.Second)
+	if err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil); err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	skipFirst := true
+	c := &Client{
+		Transport: &mockTransport{500, nil, nil},
+	}
+	maxAttempts := 2
+	initialBackoff := 1 * time.Hour
+	maxBackoff := 10 * time.Millisecond
+	w := &Watcher{
+		Client:         c,
+		MaxAttempts:    maxAttempts,
+		InitialBackoff: initialBackoff,
+		MaxBackoff:     maxBackoff,
+	}
+	start := time.Now()
+	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
+		if skipFirst {
+			skipFirst = false
+			return
+		}
+		cancel()
+		close(ch)
+	})
+	<-ch
+
+	elapsed := time.Now().Sub(start)
+
+	// execution time should never be more than twice the backoff
+	if elapsed > maxBackoff*2 {
+		t.Errorf("watcher backoff was longer than expected: %v", elapsed)
+	}
+}
+
+func TestWatchErrorMaxAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := DefaultClient.Put(ctx, "/v1/kv/test6/key", nil, "blah", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan struct{})
+	c := &Client{
+		Transport: &mockTransport{500, nil, nil},
+	}
+	w := &Watcher{Client: c, MaxAttempts: 10, MaxBackoff: 1 * time.Second}
+	go w.Watch(ctx, "test6/key", func(d []KeyData, err error) {
+		if err == nil {
+			t.Error("Expected error but got nil")
+			return
+		}
+		cancel()
+		close(ch)
+	})
+	<-ch
+}
+
+type mockTransport struct {
+	StatusCode int
+	Headers    map[string]string
+	Body       []byte
+}
+
+func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	status := strconv.Itoa(t.StatusCode) + " " + http.StatusText(t.StatusCode)
+	header := http.Header{}
+	for name, value := range t.Headers {
+		header.Set(name, value)
+	}
+
+	contentLength := len(t.Body)
+	header.Set("Content-Length", strconv.Itoa(contentLength))
+
+	res := &http.Response{
+		Status:           status,
+		StatusCode:       t.StatusCode,
+		Proto:            "HTTP/1.0",
+		ProtoMajor:       1,
+		ProtoMinor:       0,
+		Header:           header,
+		Body:             ioutil.NopCloser(bytes.NewReader(t.Body)),
+		ContentLength:    int64(contentLength),
+		TransferEncoding: []string{},
+		Close:            false,
+		Uncompressed:     false,
+		Trailer:          nil,
+		Request:          req,
+		TLS:              nil,
+	}
+
+	// no Content-Length when 204 or 304
+	if t.StatusCode == http.StatusNoContent || t.StatusCode == http.StatusNotModified {
+		if res.ContentLength != 0 {
+			res.Body = ioutil.NopCloser(bytes.NewReader([]byte{}))
+			res.ContentLength = 0
+		}
+		header.Del("Content-Length")
+	}
+	return res, nil
 }
