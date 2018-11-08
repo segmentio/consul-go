@@ -110,20 +110,17 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 }
 
 // This tests two things:
-// 1. a non-existant key doesn't immediately throw a 404 on the second
-//    call (the first will always throw 404 because it doesn't exist)
+// 1. a non-existant key doesn't immediately receive an error
 // 2. the index is being set properly in the request
 func TestWatchPrefixNonExistant(t *testing.T) {
 	ctx := context.Background()
+	// ensure that the key does not exist
+	if err := DefaultClient.Delete(ctx, "/v1/kv/test4/key", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	ch := make(chan []KeyData, 1)
-	skipFirst := true
-
-	w := &Watcher{MaxBackoff: 10 * time.Millisecond}
+	w := &Watcher{MaxBackoff: 11 * time.Millisecond}
 	go w.WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
-		if skipFirst {
-			skipFirst = false
-			return
-		}
 		if err != nil {
 			t.Error(err)
 		}
@@ -144,8 +141,7 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 
 func TestWatchMaxBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background()) //, 3*time.Second)
-	err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil)
-	if err != nil {
+	if err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil); err != nil {
 		t.Fatal(err)
 	}
 	ch := make(chan struct{})
@@ -156,7 +152,12 @@ func TestWatchMaxBackoff(t *testing.T) {
 	maxAttempts := 2
 	initialBackoff := 1 * time.Hour
 	maxBackoff := 10 * time.Millisecond
-	w := &Watcher{Client: c, MaxAttempts: maxAttempts, InitialBackoff: initialBackoff, MaxBackoff: maxBackoff}
+	w := &Watcher{
+		Client:         c,
+		MaxAttempts:    maxAttempts,
+		InitialBackoff: initialBackoff,
+		MaxBackoff:     maxBackoff,
+	}
 	start := time.Now()
 	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
 		if skipFirst {
