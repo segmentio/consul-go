@@ -118,7 +118,8 @@ func TestWatchPrefixNonExistant(t *testing.T) {
 	ch := make(chan []KeyData, 1)
 	skipFirst := true
 
-	go WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
+	w := &Watcher{MaxBackoff: 10 * time.Millisecond}
+	go w.WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
 		if skipFirst {
 			skipFirst = false
 			return
@@ -185,7 +186,7 @@ func TestWatchErrorMaxAttempts(t *testing.T) {
 	c := &Client{
 		Transport: &mockTransport{500, nil, nil},
 	}
-	w := &Watcher{Client: c, MaxAttempts: 10}
+	w := &Watcher{Client: c, MaxAttempts: 10, MaxBackoff: 1 * time.Second}
 	go w.Watch(ctx, "test6/key", func(d []KeyData, err error) {
 		if err == nil {
 			t.Error("Expected error but got nil")
