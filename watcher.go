@@ -140,6 +140,15 @@ func (w *Watcher) watching(ctx context.Context, key string, handler WatcherFunc,
 		// 2) provides back-pressure when consul is down
 		// 3) gives the handler visibility to all errors
 		if err != nil {
+			// Not found errors are fine in this context, we have to treat
+			// them as non-errors in order to communicate the absence of data
+			// to the handler.
+			if nfe, ok := err.(*httpError); ok && nfe.NotFound() {
+				attempt = 0
+				handler(resp, nil)
+				continue
+			}
+
 			attempt++
 			if attempt <= w.MaxAttempts {
 				continue

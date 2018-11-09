@@ -19,7 +19,6 @@ func TestWatchPrefix(t *testing.T) {
 	ch := make(chan struct{})
 	res := []KeyData{}
 	skipFirst := true
-
 	go WatchPrefix(ctx, "test1/key", func(d []KeyData, err error) {
 		if skipFirst {
 			skipFirst = false
@@ -50,7 +49,8 @@ func TestWatch(t *testing.T) {
 	res := KeyData{}
 	ch := make(chan struct{})
 	skipFirst := true
-	go Watch(ctx, "test2/key", func(d []KeyData, err error) {
+	w := &Watcher{MaxAttempts: 2, MaxBackoff: 10 * time.Millisecond}
+	go w.Watch(ctx, "test2/key", func(d []KeyData, err error) {
 		if skipFirst {
 			skipFirst = false
 			return
@@ -82,27 +82,17 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch := make(chan struct{})
-	skipFirst := true
-	ts := &http.Transport{
-		ResponseHeaderTimeout: 100 * time.Microsecond,
-	}
-	c := &Client{
-		Transport: ts,
-	}
+	ts := &http.Transport{ResponseHeaderTimeout: 100 * time.Microsecond}
+	c := &Client{Transport: ts}
 	w := &Watcher{Client: c, MaxAttempts: 2, MaxBackoff: 10 * time.Millisecond}
 	go w.Watch(ctx, "test3/key", func(d []KeyData, err error) {
-		// We should only see this function 2x: first for initialization,
-		// then the timeout.  we never trigger the watch and all the errors
-		// are temporary
-		if skipFirst {
-			skipFirst = false
-			return
-		}
 		if ev, ok := err.(interface {
-			Temporary() bool
-		}); !ok || !ev.Temporary() {
-			t.Errorf("Expected Temporary (timeout) error but got: %v", err)
+			Timeout() bool
+		}); !ok || !ev.Timeout() {
+			t.Errorf("Expected timeout error but got: %v", err)
 		}
+		// this might fire more than once and try to close the channel twice
+		// unless we cancel the context
 		cancel()
 		close(ch)
 	})
@@ -110,46 +100,33 @@ func TestWatchTimeoutMaxAttempts(t *testing.T) {
 }
 
 // This tests two things:
-// 1. a non-existant key doesn't immediately receive an error
+// 1. a non-existant key doesn't receive an error
 // 2. the index is being set properly in the request
 func TestWatchPrefixNonExistant(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	// ensure that the key does not exist
 	if err := DefaultClient.Delete(ctx, "/v1/kv/test4/key", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	ch := make(chan []KeyData, 1)
-	w := &Watcher{MaxBackoff: 11 * time.Millisecond}
-	go w.WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
+	ch := make(chan struct{})
+	go WatchPrefix(ctx, "test4/key", func(d []KeyData, err error) {
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
-		ch <- d
+		if len(d) != 0 {
+			t.Fatal("data should be empty")
+		}
+		cancel()
+		close(ch)
 	})
-
-	// Give time for the handler to setup, the handler will trigger if there's
-	// an error.
-	time.Sleep(10 * time.Millisecond)
-
-	// release the test
-	err := DefaultClient.Put(ctx, "/v1/kv/test4/key", nil, "narg", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	<-ch
 }
 
 func TestWatchMaxBackoff(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background()) //, 3*time.Second)
-	if err := DefaultClient.Put(ctx, "/v1/kv/test5/key", nil, "blah", nil); err != nil {
-		t.Fatal(err)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan struct{})
-	skipFirst := true
-	c := &Client{
-		Transport: &mockTransport{500, nil, nil},
-	}
-	maxAttempts := 2
+	c := &Client{Transport: &mockTransport{500, nil, nil}}
+	maxAttempts := 1
 	initialBackoff := 1 * time.Hour
 	maxBackoff := 10 * time.Millisecond
 	w := &Watcher{
@@ -160,10 +137,8 @@ func TestWatchMaxBackoff(t *testing.T) {
 	}
 	start := time.Now()
 	go w.Watch(ctx, "test5/key", func(d []KeyData, err error) {
-		if skipFirst {
-			skipFirst = false
-			return
-		}
+		// this might fire more than once and try to close the channel twice
+		// unless we cancel the context
 		cancel()
 		close(ch)
 	})
@@ -173,25 +148,23 @@ func TestWatchMaxBackoff(t *testing.T) {
 
 	// execution time should never be more than twice the backoff
 	if elapsed > maxBackoff*2 {
-		t.Errorf("watcher backoff was longer than expected: %v", elapsed)
+		t.Errorf("watcher backoff was longer than expected, test took %v", elapsed)
 	}
 }
 
 func TestWatchErrorMaxAttempts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	err := DefaultClient.Put(ctx, "/v1/kv/test6/key", nil, "blah", nil)
-	if err != nil {
+	if err := DefaultClient.Put(ctx, "/v1/kv/test6/key", nil, "blah", nil); err != nil {
 		t.Fatal(err)
 	}
 	ch := make(chan struct{})
-	c := &Client{
-		Transport: &mockTransport{500, nil, nil},
-	}
-	w := &Watcher{Client: c, MaxAttempts: 10, MaxBackoff: 1 * time.Second}
+	c := &Client{Transport: &mockTransport{500, nil, nil}}
+	w := &Watcher{Client: c, MaxAttempts: 5, MaxBackoff: 10 * time.Millisecond}
+	// this will continue to fire after max attempts is reached so need to
+	// cancel to prevent calling close a second time.
 	go w.Watch(ctx, "test6/key", func(d []KeyData, err error) {
 		if err == nil {
-			t.Error("Expected error but got nil")
-			return
+			t.Fatal("Expected error but got nil")
 		}
 		cancel()
 		close(ch)
