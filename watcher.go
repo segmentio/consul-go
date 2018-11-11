@@ -43,6 +43,7 @@ type Watcher struct {
 
 var (
 	DefaultWatcher = &Watcher{
+		Client:         DefaultClient,
 		MaxAttempts:    defMaxAttempts,
 		InitialBackoff: defInitialBackoff,
 		MaxBackoff:     defMaxBackoff,
