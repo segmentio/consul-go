@@ -7,7 +7,7 @@ import (
 )
 
 func TestMain(M *testing.M) {
-	consul, ok := os.LookupEnv(CONSUL_ENV)
+	consul, ok := os.LookupEnv(ConsulEnvironment)
 	if ok && consul != DefaultAddress {
 		fmt.Printf("ERROR: ENV[Consul_HTTP_ADDR] != %s ", DefaultAddress)
 		os.Exit(1)

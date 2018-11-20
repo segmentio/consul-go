@@ -19,9 +19,9 @@ import (
 const (
 	// DefaultAddress is the default consul agent address used when creating a
 	// consul client.
-	DefaultAddress = "127.0.0.1:8500"
+	DefaultAddress = "localhost:8500"
 
-	CONSUL_ENV = "CONSUL_HTTP_ADDR"
+	ConsulEnvironment = "CONSUL_HTTP_ADDR"
 )
 
 var (
@@ -86,7 +86,7 @@ type Client struct {
 }
 
 func getConsulAddress() string {
-	addr, ok := os.LookupEnv(CONSUL_ENV)
+	addr, ok := os.LookupEnv(ConsulEnvironment)
 	if !ok {
 		addr = DefaultAddress
 	}
