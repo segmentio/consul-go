@@ -46,7 +46,7 @@ func (l *Locker) Lock(ctx context.Context, keys ...string) (context.Context, con
 	}
 
 	keys = l.prefixKeys(sortedKeys(keys))
-	sessionCtx, sessionCancel := l.withSession(ctx, "lock: %v", keys)
+	sessionCtx, sessionCancel := l.withSession(ctx, makeSessionName("lock: ", keys...))
 
 	if sessionCtx.Err() != nil {
 		return sessionCtx, sessionCancel
@@ -101,7 +101,7 @@ func (l *Locker) TryLockOne(ctx context.Context, keys ...string) (context.Contex
 	}
 
 	keys = l.prefixKeys(copyKeys(keys))
-	sessionCtx, sessionCancel := l.withSession(ctx, "try-lock: %v", keys)
+	sessionCtx, sessionCancel := l.withSession(ctx, makeSessionName("try-lock: ", keys...))
 
 	if sessionCtx.Err() != nil {
 		return sessionCtx, sessionCancel
@@ -137,7 +137,7 @@ func (l *Locker) tryLock(ctx context.Context, key string) (context.Context, cont
 	return lock, lock.cancel, nil
 }
 
-func (l *Locker) withSession(ctx context.Context, name string, args ...interface{}) (context.Context, context.CancelFunc) {
+func (l *Locker) withSession(ctx context.Context, name string) (context.Context, context.CancelFunc) {
 	if ctx.Value(SessionKey) != nil {
 		// The context that was used to create the lock is already a session, we
 		// can use it directly instead of recreating one.
@@ -146,7 +146,7 @@ func (l *Locker) withSession(ctx context.Context, name string, args ...interface
 	lockDelay := l.lockDelay()
 	return WithSession(ctx, Session{
 		Client:    l.client(),
-		Name:      fmt.Sprintf(name, args...),
+		Name:      name,
 		Behavior:  l.unlockBehavior(),
 		LockDelay: lockDelay,
 		TTL:       lockDelay * 2,
@@ -191,6 +191,15 @@ func Lock(ctx context.Context, keys ...string) (context.Context, context.CancelF
 // TryLockOne calls DefaultLocker.TryLockOne.
 func TryLockOne(ctx context.Context, keys ...string) (context.Context, context.CancelFunc) {
 	return DefaultLocker.TryLockOne(ctx, keys...)
+}
+
+func makeSessionName(prefix string, args ...string) string {
+	// Arbitrary max value to limit the max size of session names we generate.
+	if len(args) > 4 {
+		return prefix + fmt.Sprint("[%s... %d keys]", args[0], len(args))
+	} else {
+		return prefix + fmt.Sprint(args)
+	}
 }
 
 var (
