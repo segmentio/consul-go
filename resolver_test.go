@@ -70,6 +70,8 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 		ServiceTags: []string{"A", "B", "C"},
 		NodeMeta:    map[string]string{"answer": "42"},
 		OnlyPassing: true,
+		AllowStale:  true,
+		AllowCached: true,
 		Cache:       cache,
 	}
 
@@ -165,8 +167,6 @@ func testLookupHost(t *testing.T, cache *ResolverCache) {
 		foundQuery := req.URL.Query()
 		expectQuery := url.Values{
 			"passing":   {"true"},
-			"stale":     {"true"},
-			"cached":    {"true"},
 			"dc":        {"dc1"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
