@@ -196,7 +196,7 @@ func TryLockOne(ctx context.Context, keys ...string) (context.Context, context.C
 func makeSessionName(prefix string, args ...string) string {
 	// Arbitrary max value to limit the max size of session names we generate.
 	if len(args) > 4 {
-		return prefix + fmt.Sprint("[%s... %d keys]", args[0], len(args))
+		return prefix + fmt.Sprintf("[%s... %d keys]", args[0], len(args))
 	} else {
 		return prefix + fmt.Sprint(args)
 	}
