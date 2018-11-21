@@ -33,6 +33,14 @@ type Resolver struct {
 	// health checks.
 	OnlyPassing bool
 
+	// If set to true, allow any server to serve the requests (not only the
+	// leader).
+	AllowStale bool
+
+	// If set to true, allow the agent to serve the requests from its local
+	// cache instead of forwarding the requests to the servers.
+	AllowCached bool
+
 	// Cache used by the resolver to reduce the number of round-trips to consul.
 	// If set to nil then no cache is used.
 	//
@@ -148,15 +156,18 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 		}
 	}
 
-	query := make(Query, 0, 1+len(rslv.NodeMeta)+len(rslv.ServiceTags))
-
-	query = append(query,
-		Param{Name: "stale", Value: "true"},
-		Param{Name: "cached", Value: "true"},
-	)
+	query := make(Query, 0, 3+len(rslv.NodeMeta)+len(rslv.ServiceTags))
 
 	if rslv.OnlyPassing {
 		query = append(query, Param{Name: "passing", Value: "true"})
+	}
+
+	if rslv.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
+	}
+
+	if rslv.AllowCached {
+		query = append(query, Param{Name: "cached", Value: "true"})
 	}
 
 	for key, value := range rslv.NodeMeta {
