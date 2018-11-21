@@ -14,7 +14,7 @@ func TestListener(t *testing.T) {
 		CheckHTTP:                           "/",
 		CheckInterval:                       10 * time.Second,
 		CheckDeregisterCriticalServiceAfter: 90 * time.Second,
-	}).ListenContext(context.Background(), "tcp", ":0")
+	}).ListenContext(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Error(err)
 		return
