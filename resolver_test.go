@@ -37,8 +37,9 @@ func testLookupService(t *testing.T, cache *ResolverCache) {
 
 		foundQuery := req.URL.Query()
 		expectQuery := url.Values{
-			"passing":   {""},
-			"stale":     {""},
+			"passing":   {"true"},
+			"stale":     {"true"},
+			"cached":    {"true"},
 			"dc":        {"dc1"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
@@ -93,7 +94,7 @@ func testLookupServiceByName(t *testing.T, cache *ResolverCache) {
 		ServiceID:   "1234",
 	}
 
-	l, err := lstn.Listen("tcp", ":0")
+	l, err := lstn.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func testLookupServiceByID(t *testing.T, cache *ResolverCache) {
 		ServiceID:   "1234",
 	}
 
-	l, err := lstn.Listen("tcp", ":0")
+	l, err := lstn.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +164,9 @@ func testLookupHost(t *testing.T, cache *ResolverCache) {
 
 		foundQuery := req.URL.Query()
 		expectQuery := url.Values{
-			"passing":   {""},
-			"stale":     {""},
+			"passing":   {"true"},
+			"stale":     {"true"},
+			"cached":    {"true"},
 			"dc":        {"dc1"},
 			"tag":       {"A", "B", "C"},
 			"node-meta": {"answer:42"},
@@ -220,7 +222,7 @@ func testLookupServiceWithBalancer(t *testing.T) {
 		ServiceTags: []string{"us-west-2b"},
 	}
 
-	l1, err := lstn.Listen("tcp", ":0")
+	l1, err := lstn.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +231,7 @@ func testLookupServiceWithBalancer(t *testing.T) {
 	lstn.ServiceID = "5678"
 	lstn.ServiceTags = []string{"us-west-2a"}
 
-	l2, err := lstn.Listen("tcp", ":0")
+	l2, err := lstn.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
