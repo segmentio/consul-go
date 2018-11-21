@@ -18,6 +18,20 @@ func init() {
 	}
 }
 
+func TestGetAddress(t *testing.T) {
+	consul, ok := os.LookupEnv(ConsulEnvironment)
+	testAddress := "https://my.consul.address"
+
+	os.Setenv(ConsulEnvironment, testAddress)
+	consultest := getConsulAddress()
+	if consultest != testAddress {
+		t.Error("unexpected consul address")
+	}
+	if ok {
+		os.Setenv(ConsulEnvironment, consul)
+	}
+}
+
 func TestClient(t *testing.T) {
 	tests := []struct {
 		method string

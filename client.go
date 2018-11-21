@@ -20,6 +20,8 @@ const (
 	// DefaultAddress is the default consul agent address used when creating a
 	// consul client.
 	DefaultAddress = "localhost:8500"
+
+	ConsulEnvironment = "CONSUL_HTTP_ADDR"
 )
 
 var (
@@ -44,7 +46,9 @@ var (
 	}
 
 	// DefaultClient is the default client used when none is specified.
-	DefaultClient = &Client{}
+	DefaultClient = &Client{
+		Address: getConsulAddress(),
+	}
 
 	// DefaultUserAgent is the default user agent used by consul clients when
 	// none has been set.
@@ -79,6 +83,14 @@ type Client struct {
 	// its agent.
 	// If Transport is nil then DefaultTransport is used instead.
 	Transport http.RoundTripper
+}
+
+func getConsulAddress() string {
+	addr, ok := os.LookupEnv(ConsulEnvironment)
+	if !ok {
+		addr = DefaultAddress
+	}
+	return addr
 }
 
 // Get sends a GET request to the consul agent.
