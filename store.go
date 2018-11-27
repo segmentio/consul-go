@@ -120,7 +120,7 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 	var keyData KeyData
 
 	if _, err = dec.Token(); err != nil { // discard '[' to iterate the response
-		err = fmt.Errorf("error attempting to read opening '[' from consul response:", err)
+		err = fmt.Errorf("error attempting to read opening '[' from consul response: %v", err)
 		return
 	}
 
