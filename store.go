@@ -22,6 +22,9 @@ type Store struct {
 
 	// A key prefix to apply to all operations made on this store.
 	Keyspace string
+
+	// Allow read operations to hit any consul servers, not just the leader.
+	AllowStale bool
 }
 
 // Tree recursively scans the given key prefix in the consul key/value store,
@@ -31,7 +34,13 @@ type Store struct {
 // prefix, one may prefer to use the Walk method to iterate through the keys
 // without loading them all in memory.
 func (store *Store) Tree(ctx context.Context, prefix string) (keys []string, err error) {
-	err = store.client().Get(ctx, store.path(prefix), Query{{Name: "keys"}}, &keys)
+	query := Query{{Name: "keys"}}
+
+	if store.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
+	}
+
+	err = store.client().Get(ctx, store.path(prefix), query, &keys)
 	for i := range keys {
 		keys[i] = store.clean(keys[i])
 	}
@@ -48,6 +57,10 @@ func (store *Store) Walk(ctx context.Context, prefix string, walk func(key strin
 	var query = Query{
 		{Name: "keys"},
 		{Name: "recurse", Value: "true"},
+	}
+
+	if store.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
 	}
 
 	if _, result, err = store.client().call(ctx, "GET", store.path(prefix), query, nil); err != nil {
@@ -94,26 +107,34 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 		{Name: "recurse", Value: "true"},
 	}
 
+	if store.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
+	}
+
 	if _, result, err = store.client().call(ctx, "GET", store.path(prefix), query, nil); err != nil {
 		return
 	}
 	defer result.Close()
 
-	var keyData []KeyData
-	if err = json.NewDecoder(result).Decode(&keyData); err != nil {
-		return
-	}
-	if err = result.Close(); err != nil {
+	var dec = json.NewDecoder(result)
+	var keyData KeyData
+
+	if _, err = dec.Token(); err != nil { // discard '[' to iterate the response
+		err = fmt.Errorf("error attempting to read opening '[' from consul response:", err)
 		return
 	}
 
-	for _, data := range keyData {
-		data.Key = store.clean(data.Key)
-		if err = walk(data); err != nil {
+	for dec.More() {
+		if err = dec.Decode(&keyData); err != nil {
+			return
+		}
+		keyData.Key = store.clean(keyData.Key)
+		if err = walk(keyData); err != nil {
 			return
 		}
 	}
 
+	err = result.Close()
 	return
 }
 
@@ -125,8 +146,13 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 func (store *Store) Read(ctx context.Context, key string) (value io.ReadCloser, index int64, err error) {
 	var header http.Header
 	var sindex string
+	var query = Query{{Name: "raw"}}
 
-	if header, value, err = store.client().call(ctx, "GET", store.path(key), Query{{Name: "raw"}}, nil); err != nil {
+	if store.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
+	}
+
+	if header, value, err = store.client().call(ctx, "GET", store.path(key), query, nil); err != nil {
 		return
 	}
 
@@ -293,8 +319,13 @@ func (store *Store) Session(ctx context.Context, key string) (session Session, e
 
 func (store *Store) readKeyData(ctx context.Context, key string) (keyData KeyData, err error) {
 	var meta []KeyData
+	var query Query
 
-	if err = store.client().Get(ctx, store.path(key), nil, &meta); err != nil {
+	if store.AllowStale {
+		query = append(query, Param{Name: "stale", Value: "true"})
+	}
+
+	if err = store.client().Get(ctx, store.path(key), query, &meta); err != nil {
 		return
 	}
 
