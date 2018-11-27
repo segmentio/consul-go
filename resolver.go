@@ -41,6 +41,10 @@ type Resolver struct {
 	// cache instead of forwarding the requests to the servers.
 	AllowCached bool
 
+	// If set to true, disable fetching the node coordinates when looking up
+	// service endpoints.
+	DisableCoordinates bool
+
 	// Cache used by the resolver to reduce the number of round-trips to consul.
 	// If set to nil then no cache is used.
 	//
@@ -202,13 +206,15 @@ func (rslv *Resolver) lookupService(ctx context.Context, name string) (list []En
 		}
 	}
 
-	agent, _ := rslv.agent().NodeName(ctx)
-	nodes, _ := rslv.tomography().NodeCoordinates(ctx)
+	if !rslv.DisableCoordinates {
+		agent, _ := rslv.agent().NodeName(ctx)
+		nodes, _ := rslv.tomography().NodeCoordinates(ctx)
 
-	if from, ok := nodes[agent]; ok {
-		for i := range list {
-			if to, ok := nodes[list[i].Node]; ok {
-				list[i].RTT = Distance(from, to)
+		if from, ok := nodes[agent]; ok {
+			for i := range list {
+				if to, ok := nodes[list[i].Node]; ok {
+					list[i].RTT = Distance(from, to)
+				}
 			}
 		}
 	}
