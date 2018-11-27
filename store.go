@@ -132,6 +132,7 @@ func (store *Store) WalkData(ctx context.Context, prefix string, walk func(data 
 		if err = walk(keyData); err != nil {
 			return
 		}
+		keyData = KeyData{}
 	}
 
 	err = result.Close()
