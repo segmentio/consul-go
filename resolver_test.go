@@ -35,11 +35,11 @@ func testLookupServiceInto(t *testing.T) {
 	}
 	newEndpoints := []Endpoint{{Addr: newServiceAddr("192.168.0.1", 4242)}}
 	cache := &ResolverCache{}
-	cache.LookupServiceInto(context.Background(), "", dirtyEndpoints, func(ctx context.Context, name string) (addrs []Endpoint, err error) {
+	newReturnedEp, _ := cache.LookupServiceInto(context.Background(), "", dirtyEndpoints, func(ctx context.Context, name string) (addrs []Endpoint, err error) {
 		return newEndpoints, nil
 	})
 
-	if len(dirtyEndpoints) != len(newEndpoints) || !reflect.DeepEqual( dirtyEndpoints[0] , newEndpoints[0] ){
+	if len(newReturnedEp) != len(newEndpoints) || !reflect.DeepEqual(newReturnedEp[0], newEndpoints[0]) {
 		t.Error("LookupServiceInto returned unclean slice")
 	}
 }
