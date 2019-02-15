@@ -18,11 +18,30 @@ func TestResolver(t *testing.T) {
 		t.Run("by-name", func(t *testing.T) { testLookupServiceByName(t, nil) })
 		t.Run("by-ID", func(t *testing.T) { testLookupServiceByID(t, nil) })
 		t.Run("looking up service by names or IDs works properly with cache and balancers", testLookupServiceWithBalancer)
+		t.Run("looking up service by name into slice returns re-slices to proper len", func(t *testing.T) { testLookupServiceInto(t) })
 	})
 	t.Run("LookupHost", func(t *testing.T) {
 		t.Run("uncached", func(t *testing.T) { testLookupHost(t, nil) })
 		t.Run("cached", func(t *testing.T) { testLookupService(t, &ResolverCache{}) })
 	})
+}
+
+func testLookupServiceInto(t *testing.T) {
+	t.Parallel()
+	dirtyEndpoints := []Endpoint{
+		{Addr: newServiceAddr("192.168.0.1", 4242)},
+		{Addr: newServiceAddr("192.168.0.2", 4242)},
+		{Addr: newServiceAddr("192.168.0.3", 4242)},
+	}
+	newEndpoints := []Endpoint{{Addr: newServiceAddr("192.168.0.1", 4242)}}
+	cache := &ResolverCache{}
+	cache.LookupServiceInto(context.Background(), "", dirtyEndpoints, func(ctx context.Context, name string) (addrs []Endpoint, err error) {
+		return newEndpoints, nil
+	})
+
+	if len(dirtyEndpoints) != len(newEndpoints) || !reflect.DeepEqual( dirtyEndpoints[0] , newEndpoints[0] ){
+		t.Error("LookupServiceInto returned unclean slice")
+	}
 }
 
 func testLookupService(t *testing.T, cache *ResolverCache) {
