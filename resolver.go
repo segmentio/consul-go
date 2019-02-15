@@ -377,15 +377,7 @@ func (cache *ResolverCache) LookupServiceInto(ctx context.Context, name string, 
 	if list == nil {
 		list = make([]Endpoint, len(entry.res))
 	}
-
-	copy(list, entry.res)
-	if len(list) < len(entry.res) {
-		list = append(list, entry.res[len(list):]...)
-	} else if len(list) > len(entry.res) {
-		list = list[:len(entry.res)]
-	}
-
-	return list, entry.err
+	return append(list[:0], entry.res...), entry.err
 }
 
 func (cache *ResolverCache) cacheTimeout() time.Duration {
