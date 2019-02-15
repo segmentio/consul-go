@@ -33,7 +33,7 @@ func testLookupServiceInto(t *testing.T) {
 		{Addr: newServiceAddr("192.168.0.2", 4242)},
 		{Addr: newServiceAddr("192.168.0.3", 4242)},
 	}
-	newEndpoints := []Endpoint{{Addr: newServiceAddr("192.168.0.1", 4242)}}
+	newEndpoints := []Endpoint{{Addr: newServiceAddr("192.168.0.10", 4242)}}
 	cache := &ResolverCache{}
 	newReturnedEp, _ := cache.LookupServiceInto(context.Background(), "", dirtyEndpoints, func(ctx context.Context, name string) (addrs []Endpoint, err error) {
 		return newEndpoints, nil
