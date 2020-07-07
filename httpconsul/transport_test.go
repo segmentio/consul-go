@@ -18,7 +18,7 @@ func TestTransport(t *testing.T) {
 	t.Run("sending requests to existing services results in a getting a response from one of the endpoints",
 		testTransportRequestExistingService)
 
-	t.Run("sending requests to non-existing services results in blacklisting the endpoints and an error after a couple of attempts",
+	t.Run("sending requests to non-existing services results in denylisting the endpoints and an error after a couple of attempts",
 		testTransportRequestNonExistingService)
 }
 
@@ -80,8 +80,8 @@ func testTransportRequestNonExistingService(t *testing.T) {
 				}).DialContext,
 			},
 			&consul.Resolver{
-				Client:    consulClient,
-				Blacklist: &consul.ResolverBlacklist{},
+				Client:   consulClient,
+				Denylist: &consul.ResolverDenylist{},
 			},
 		),
 	}

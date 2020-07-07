@@ -24,7 +24,7 @@ type Dialer struct {
 	DualStack     bool
 	FallbackDelay time.Duration
 	KeepAlive     time.Duration
-	BlacklistTTL  time.Duration
+	DenylistTTL   time.Duration
 	Resolver      *Resolver
 }
 
@@ -80,8 +80,8 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 			break
 		}
 
-		if resolver.Blacklist != nil {
-			resolver.Blacklist.Blacklist(addr.Addr, time.Now().Add(d.blacklistTTL()))
+		if resolver.Denylist != nil {
+			resolver.Denylist.Denylist(addr.Addr, time.Now().Add(d.denylistTTL()))
 		}
 	}
 
@@ -95,8 +95,8 @@ func (d *Dialer) resolver() *Resolver {
 	return DefaultResolver
 }
 
-func (d *Dialer) blacklistTTL() time.Duration {
-	if ttl := d.BlacklistTTL; ttl != 0 {
+func (d *Dialer) denylistTTL() time.Duration {
+	if ttl := d.DenylistTTL; ttl != 0 {
 		return ttl
 	}
 	return 1 * time.Second

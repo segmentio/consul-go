@@ -15,7 +15,7 @@ func TestDialer(t *testing.T) {
 	t.Run("dialing existing services results in a connection being established to one of the endpoints",
 		testDialerDialExistingService)
 
-	t.Run("dialing non-existing services results in blacklisting the endpoints and an error after a couple of attempts",
+	t.Run("dialing non-existing services results in denylisting the endpoints and an error after a couple of attempts",
 		testDialerDialNonExistingService)
 }
 
@@ -78,8 +78,8 @@ func testDialerDialNonExistingService(t *testing.T) {
 			DialContext: (&Dialer{
 				Timeout: 10 * time.Millisecond,
 				Resolver: &Resolver{
-					Client:    consulClient,
-					Blacklist: &ResolverBlacklist{},
+					Client:   consulClient,
+					Denylist: &ResolverDenylist{},
 				},
 			}).DialContext,
 		},
