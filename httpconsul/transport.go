@@ -72,9 +72,9 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			break
 		}
 
-		if t.rslv.Blacklist != nil {
-			// TODO: make the blacklist TTL configurable here?
-			t.rslv.Blacklist.Blacklist(addr.Addr, time.Now().Add(1*time.Second))
+		if t.rslv.Denylist != nil {
+			// TODO: make the denylist TTL configurable here?
+			t.rslv.Denylist.Denylist(addr.Addr, time.Now().Add(1*time.Second))
 		}
 	}
 

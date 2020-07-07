@@ -446,28 +446,28 @@ func BenchmarkResolverCacheIntoResize(b *testing.B) {
 	})
 }
 
-func TestResolverBlacklist(t *testing.T) {
+func TestResolverDenylist(t *testing.T) {
 	tests := []struct {
 		scenario string
-		function func(*testing.T, *ResolverBlacklist, []Endpoint)
+		function func(*testing.T, *ResolverDenylist, []Endpoint)
 	}{
 		{
-			scenario: "when no address is blacklisted no address is filtered out",
-			function: testResolverBlacklistNoFilter,
+			scenario: "when no address is denylisted no address is filtered out",
+			function: testResolverDenylistNoFilter,
 		},
 		{
-			scenario: "blacklisted addresses are filtered out of the endpoint list",
-			function: testResolverBlacklistFilter,
+			scenario: "denied addresses are filtered out of the endpoint list",
+			function: testResolverDenylistFilter,
 		},
 		{
-			scenario: "blacklisted addresses are cleaned up after enough calls to Filter",
-			function: testResolverBlacklistCleanup,
+			scenario: "denied addresses are cleaned up after enough calls to Filter",
+			function: testResolverDenylistCleanup,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
-			blacklist := &ResolverBlacklist{}
+			denylist := &ResolverDenylist{}
 			endpoints := []Endpoint{
 				{ID: "A", Addr: newServiceAddr("127.0.0.1", 1000)},
 				{ID: "B", Addr: newServiceAddr("127.0.0.1", 1001)},
@@ -476,30 +476,30 @@ func TestResolverBlacklist(t *testing.T) {
 				{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
 			}
 
-			test.function(t, blacklist, endpoints)
+			test.function(t, denylist, endpoints)
 		})
 	}
 }
 
-func testResolverBlacklistNoFilter(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+func testResolverDenylistNoFilter(t *testing.T, denylist *ResolverDenylist, endpoints []Endpoint) {
 	now := time.Now()
 
 	list := make([]Endpoint, len(endpoints))
 	copy(list, endpoints)
 
-	if unfiltered := blacklist.Filter(list, now); !reflect.DeepEqual(unfiltered, endpoints) {
+	if unfiltered := denylist.Filter(list, now); !reflect.DeepEqual(unfiltered, endpoints) {
 		t.Error("bad endpoint list:")
 		t.Log("expected:", endpoints)
 		t.Log("found:   ", unfiltered)
 	}
 }
 
-func testResolverBlacklistFilter(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+func testResolverDenylistFilter(t *testing.T, denylist *ResolverDenylist, endpoints []Endpoint) {
 	now := time.Now()
 
-	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
-	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
-	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
+	denylist.Denylist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	denylist.Denylist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	denylist.Denylist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
 
 	list := make([]Endpoint, len(endpoints))
 	copy(list, endpoints)
@@ -511,38 +511,38 @@ func testResolverBlacklistFilter(t *testing.T, blacklist *ResolverBlacklist, end
 		{ID: "E", Addr: newServiceAddr("127.0.0.1", 1004)},
 	}
 
-	if filtered := blacklist.Filter(list, now.Add(500*time.Millisecond)); !reflect.DeepEqual(filtered, expected) {
+	if filtered := denylist.Filter(list, now.Add(500*time.Millisecond)); !reflect.DeepEqual(filtered, expected) {
 		t.Error("bad endpoint list:")
 		t.Log("expected:", expected)
 		t.Log("found:   ", filtered)
 	}
 }
 
-func testResolverBlacklistCleanup(t *testing.T, blacklist *ResolverBlacklist, endpoints []Endpoint) {
+func testResolverDenylistCleanup(t *testing.T, denylist *ResolverDenylist, endpoints []Endpoint) {
 	now := time.Now()
 
-	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
-	blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
-	blacklist.Blacklist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
+	denylist.Denylist(newServiceAddr("127.0.0.1", 1000), now.Add(time.Second))
+	denylist.Denylist(newServiceAddr("127.0.0.1", 1003), now.Add(time.Millisecond))
+	denylist.Denylist(newServiceAddr("192.168.0.1", 8080), now.Add(time.Hour))
 
-	for i := 0; i != (resolverBlacklistCleanupInterval + 1); i++ {
+	for i := 0; i != (resolverDenylistCleanupInterval + 1); i++ {
 		list := make([]Endpoint, len(endpoints))
 		copy(list, endpoints)
-		blacklist.Filter(list, now.Add(2*time.Second))
+		denylist.Filter(list, now.Add(2*time.Second))
 	}
 
-	if !reflect.DeepEqual(blacklist.cache(), blacklistCache{
+	if !reflect.DeepEqual(denylist.cache(), denylistCache{
 		"192.168.0.1:8080": now.Add(time.Hour),
 	}) {
-		t.Error("bad blacklist state:", blacklist.addrs)
+		t.Error("bad denylist state:", denylist.addrs)
 	}
 }
 
-func BenchmarkResolverBlacklist(b *testing.B) {
+func BenchmarkResolverDenylist(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		now := time.Now()
 
-		blacklist := &ResolverBlacklist{}
+		denylist := &ResolverDenylist{}
 
 		b.RunParallel(func(pb *testing.PB) {
 			endpoints := []Endpoint{
@@ -553,7 +553,7 @@ func BenchmarkResolverBlacklist(b *testing.B) {
 			}
 
 			for pb.Next() {
-				blacklist.Filter(endpoints, now)
+				denylist.Filter(endpoints, now)
 			}
 		})
 	})
@@ -562,10 +562,10 @@ func BenchmarkResolverBlacklist(b *testing.B) {
 		now := time.Now()
 		exp := now.Add(time.Minute)
 
-		blacklist := &ResolverBlacklist{}
-		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1002), exp)
-		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1003), exp)
-		blacklist.Blacklist(newServiceAddr("127.0.0.1", 1005), exp)
+		denylist := &ResolverDenylist{}
+		denylist.Denylist(newServiceAddr("127.0.0.1", 1002), exp)
+		denylist.Denylist(newServiceAddr("127.0.0.1", 1003), exp)
+		denylist.Denylist(newServiceAddr("127.0.0.1", 1005), exp)
 
 		b.RunParallel(func(pb *testing.PB) {
 			endpoints := []Endpoint{
@@ -576,7 +576,7 @@ func BenchmarkResolverBlacklist(b *testing.B) {
 			}
 
 			for pb.Next() {
-				blacklist.Filter(endpoints, now)
+				denylist.Filter(endpoints, now)
 			}
 		})
 	})
