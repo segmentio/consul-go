@@ -1,5 +1,8 @@
 # consul-go [![CircleCI](https://circleci.com/gh/segmentio/consul-go.svg?style=shield)](https://circleci.com/gh/segmentio/consul-go) [![Go Report Card](https://goreportcard.com/badge/github.com/segmentio/consul-go)](https://goreportcard.com/report/github.com/segmentio/consul-go) [![GoDoc](https://godoc.org/github.com/segmentio/consul-go?status.svg)](https://godoc.org/github.com/segmentio/consul-go)
 
+> **Note**  
+> Segment has paused maintenance on this project, but may return it to an active status in the future. Issues and pull requests from external contributors are not being considered, although internal contributions may appear from time to time. The project remains available under its open source license for anyone to use.
+
 ## Motivations
 
 Consul being built in Go it already has pretty good client library support,
