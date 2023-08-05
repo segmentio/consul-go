@@ -55,8 +55,8 @@ type Resolver struct {
 	Cache *ResolverCache
 
 	// This field may be set to allow the resolver to support temporarily
-	// blacklisting addresses that are known to be unreachable.
-	Blacklist *ResolverBlacklist
+	// denying addresses that are known to be unreachable.
+	Denylist *ResolverDenylist
 
 	// Agent is used to set the origin from which the distance to each endpoints
 	// are computed. If nil, DefaultAgent is used instead.
@@ -129,8 +129,8 @@ func (rslv *Resolver) LookupServiceInto(ctx context.Context, name string, list [
 		return nil, err
 	}
 
-	if rslv.Blacklist != nil {
-		list = rslv.Blacklist.Filter(list, time.Now())
+	if rslv.Denylist != nil {
+		list = rslv.Denylist.Filter(list, time.Now())
 	}
 
 	if rslv.Balancer != nil {
@@ -260,7 +260,7 @@ func (rslv *Resolver) tomography() *Tomography {
 var DefaultResolver = &Resolver{
 	OnlyPassing: true,
 	Cache:       &ResolverCache{Balancer: MultiBalancer(defaultCacheBalancer(), &Shuffler{})},
-	Blacklist:   &ResolverBlacklist{},
+	Denylist:    &ResolverDenylist{},
 	Balancer:    &LoadBalancer{New: func() Balancer { return &RoundRobin{} }},
 	Sort:        WeightedShuffleOnRTT,
 }
@@ -530,71 +530,71 @@ func splitNameID(s string) (name string, id string) {
 	return
 }
 
-// ResolverBlacklist implements a negative caching for Resolver instances.
+// ResolverDenylist implements a negative caching for Resolver instances.
 // It works by registering addresses that should be filtered out of a service
-// name resolution result, with a deadline at which the address blacklist will
+// name resolution result, with a deadline at which the address denylist will
 // expire.
-type ResolverBlacklist struct {
+type ResolverDenylist struct {
 	length   int64          // number of items in the map
 	version  uint32         // counter for cleaning up the resolver map
 	cleaning uint32         // lock to ensure only one goroutine cleans the map
-	addrs    unsafe.Pointer // *blacklistCache
+	addrs    unsafe.Pointer // *denylistCache
 }
 
 const (
-	resolverBlacklistCleanupInterval = 1000
+	resolverDenylistCleanupInterval = 1000
 )
 
-// Blacklist adds a blacklisted address, which expires and expireAt is reached.
-func (blacklist *ResolverBlacklist) Blacklist(addr net.Addr, expireAt time.Time) {
-	atomic.AddInt64(&blacklist.length, 1)
+// Denylist adds a denied address, which expires and expireAt is reached.
+func (denylist *ResolverDenylist) Denylist(addr net.Addr, expireAt time.Time) {
+	atomic.AddInt64(&denylist.length, 1)
 
 	for {
-		oldCache := blacklist.loadCache()
+		oldCache := denylist.loadCache()
 		newCache := oldCache.copy()
 		newCache[addr.String()] = expireAt
 
-		if blacklist.compareAndSwapCache(oldCache, &newCache) {
+		if denylist.compareAndSwapCache(oldCache, &newCache) {
 			break
 		}
 	}
 }
 
 // Filter takes a slice of endpoints and the current time, and returns that
-// same slice trimmed, where all blacklisted addresses have been filtered out.
-func (blacklist *ResolverBlacklist) Filter(endpoints []Endpoint, now time.Time) []Endpoint {
-	// In the common case where there is no endpoints in the blacklist, the
+// same slice trimmed, where all denied addresses have been filtered out.
+func (denylist *ResolverDenylist) Filter(endpoints []Endpoint, now time.Time) []Endpoint {
+	// In the common case where there is no endpoints in the denylist, the
 	// code takes this fast non-blocking path.
-	if atomic.LoadInt64(&blacklist.length) == 0 {
+	if atomic.LoadInt64(&denylist.length) == 0 {
 		return endpoints
 	}
 
-	cache := blacklist.cache()
+	cache := denylist.cache()
 	endpointsLength := 0
 
 	for i := range endpoints {
-		expireAt, blacklisted := cache[endpoints[i].Addr.String()]
+		expireAt, denylisted := cache[endpoints[i].Addr.String()]
 
-		if !blacklisted || now.After(expireAt) {
+		if !denylisted || now.After(expireAt) {
 			endpoints[endpointsLength] = endpoints[i]
 			endpointsLength++
 		}
 	}
 
-	if version := atomic.AddUint32(&blacklist.version, 1); (version % resolverBlacklistCleanupInterval) == 0 {
-		if atomic.CompareAndSwapUint32(&blacklist.cleaning, 0, 1) {
-			blacklist.cleanup(now)
-			atomic.StoreUint32(&blacklist.cleaning, 0)
+	if version := atomic.AddUint32(&denylist.version, 1); (version % resolverDenylistCleanupInterval) == 0 {
+		if atomic.CompareAndSwapUint32(&denylist.cleaning, 0, 1) {
+			denylist.cleanup(now)
+			atomic.StoreUint32(&denylist.cleaning, 0)
 		}
 	}
 
 	return endpoints[:endpointsLength]
 }
 
-func (blacklist *ResolverBlacklist) cleanup(now time.Time) {
+func (denylist *ResolverDenylist) cleanup(now time.Time) {
 	for {
 		deleted := int64(0)
-		oldCache := blacklist.loadCache()
+		oldCache := denylist.loadCache()
 		newCache := oldCache.copy()
 
 		for addr, expireAt := range *oldCache {
@@ -604,33 +604,33 @@ func (blacklist *ResolverBlacklist) cleanup(now time.Time) {
 			}
 		}
 
-		if blacklist.compareAndSwapCache(oldCache, &newCache) {
-			atomic.AddInt64(&blacklist.length, -deleted)
+		if denylist.compareAndSwapCache(oldCache, &newCache) {
+			atomic.AddInt64(&denylist.length, -deleted)
 			break
 		}
 	}
 }
 
-func (blacklist *ResolverBlacklist) cache() blacklistCache {
-	cache := blacklist.loadCache()
+func (denylist *ResolverDenylist) cache() denylistCache {
+	cache := denylist.loadCache()
 	if cache == nil {
 		return nil
 	}
 	return *cache
 }
 
-func (blacklist *ResolverBlacklist) loadCache() *blacklistCache {
-	return (*blacklistCache)(atomic.LoadPointer(&blacklist.addrs))
+func (denylist *ResolverDenylist) loadCache() *denylistCache {
+	return (*denylistCache)(atomic.LoadPointer(&denylist.addrs))
 }
 
-func (blacklist *ResolverBlacklist) compareAndSwapCache(old *blacklistCache, new *blacklistCache) bool {
-	return atomic.CompareAndSwapPointer(&blacklist.addrs, unsafe.Pointer(old), unsafe.Pointer(new))
+func (denylist *ResolverDenylist) compareAndSwapCache(old *denylistCache, new *denylistCache) bool {
+	return atomic.CompareAndSwapPointer(&denylist.addrs, unsafe.Pointer(old), unsafe.Pointer(new))
 }
 
-type blacklistCache map[string]time.Time
+type denylistCache map[string]time.Time
 
-func (m *blacklistCache) copy() blacklistCache {
-	c := make(blacklistCache)
+func (m *denylistCache) copy() denylistCache {
+	c := make(denylistCache)
 	if m != nil {
 		for k, v := range *m {
 			c[k] = v
